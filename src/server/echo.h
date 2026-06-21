@@ -1,10 +1,11 @@
 #ifndef ECHO_H
 #define ECHO_H
 
-#include "../buffer.h"
-#include "../selector.h"
 #include <stdbool.h>
 #include <stdint.h>
+
+#include "../buffer.h"
+#include "../selector.h"
 
 #define ECHO_BUFFER_SIZE 4096
 
