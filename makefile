@@ -4,7 +4,7 @@ BIN_FOLDER     = ./bin
 OBJ_FOLDER     = ./obj
 BUILD_FOLDER   = ./build
 
-SERVER_SOURCES = $(wildcard src/server/*.c)
+SERVER_SOURCES = $(filter-out %_test.c,$(wildcard src/server/*.c))
 CLIENT_SOURCES = $(wildcard src/client/*.c)
 SHARED_SOURCES = $(wildcard src/shared/*.c) \
                  $(filter-out %_test.c,$(wildcard src/*.c))
@@ -21,7 +21,8 @@ TEST_BINARIES  = $(BUILD_FOLDER)/buffer_test \
                  $(BUILD_FOLDER)/parser_test \
                  $(BUILD_FOLDER)/parser_utils_test \
                  $(BUILD_FOLDER)/netutils_test \
-                 $(BUILD_FOLDER)/stm_test
+                 $(BUILD_FOLDER)/stm_test \
+                 $(BUILD_FOLDER)/echo_server_test
 
 TARGETS        :=
 ifneq ($(SERVER_SOURCES),)
@@ -85,3 +86,7 @@ $(BUILD_FOLDER)/netutils_test: src/netutils_test.c src/netutils.c src/buffer.c
 $(BUILD_FOLDER)/stm_test: src/stm_test.c src/stm.c
 	mkdir -p $(BUILD_FOLDER)
 	$(COMPILER) $(COMPILER_FLAGS) $^ $(CHECK_LIBS) -o $@
+
+$(BUILD_FOLDER)/echo_server_test: src/echo_server_test.c src/server/echo.c src/buffer.c src/selector.c
+	mkdir -p $(BUILD_FOLDER)
+	$(COMPILER) $(COMPILER_FLAGS) -Isrc $^ $(CHECK_LIBS) -o $@
