@@ -1,4 +1,4 @@
-#include "echo.h"
+#include "socks.h"
 
 #include <errno.h>
 #include <signal.h>
@@ -102,28 +102,28 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    // entrypoint al echo server
+    // entrypoint al socks server
 
     volatile bool stop = false;
-    struct echo_server *server = NULL;
+    struct socks_server *server = NULL;
 
-    if (echo_server_init(selector, port, &stop, &server) != SELECTOR_SUCCESS)
+    if (socks_server_init(selector, port, &stop, &server) != SELECTOR_SUCCESS)
     {
-        fprintf(stderr, "echo_server_init failed: %s\n", strerror(errno));
+        fprintf(stderr, "socks_server_init failed: %s\n", strerror(errno));
         selector_destroy(selector);
         selector_close();
         return EXIT_FAILURE;
     }
 
     // mientras haya conexiones activas atiende los pedidos de conexión
-    while (!echo_server_is_empty(server))
+    while (!socks_server_is_empty(server))
     {
         if (shutdown_requested)
         {
             stop = true;
         }
 
-        if (echo_server_run_once(server) != SELECTOR_SUCCESS && errno != EINTR)
+        if (socks_server_run_once(server) != SELECTOR_SUCCESS && errno != EINTR)
         {
             break;
         }
@@ -134,7 +134,7 @@ int main(int argc, char **argv)
         }
     }
 
-    echo_server_destroy(server);
+    socks_server_destroy(server);
     selector_destroy(selector);
     selector_close();
 
