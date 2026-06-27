@@ -60,8 +60,8 @@ const uint8_t *socks_auth_password(const socks_auth_parser *parser)
 
 /*
  * Valida usuario/contraseña contra la lista del servidor.
- * TODO: reemplazar por tabla de usuarios del protocolo de monitoreo.
  */
+ // TODO: reemplazar por tabla de usuarios del protocolo de monitoreo del TP.
 bool socks_auth_validate(const socks_auth_parser *parser)
 {
     static const char valid_user[] = "admin";
