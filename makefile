@@ -22,7 +22,8 @@ TEST_BINARIES  = $(BUILD_FOLDER)/buffer_test \
                  $(BUILD_FOLDER)/parser_utils_test \
                  $(BUILD_FOLDER)/netutils_test \
                  $(BUILD_FOLDER)/stm_test \
-                 $(BUILD_FOLDER)/echo_server_test
+                 $(BUILD_FOLDER)/echo_server_test \
+                 $(BUILD_FOLDER)/socks5_greeting_test
 
 TARGETS        :=
 ifneq ($(SERVER_SOURCES),)
@@ -88,5 +89,9 @@ $(BUILD_FOLDER)/stm_test: src/stm_test.c src/stm.c
 	$(COMPILER) $(COMPILER_FLAGS) $^ $(CHECK_LIBS) -o $@
 
 $(BUILD_FOLDER)/echo_server_test: src/echo_server_test.c src/server/echo.c src/buffer.c src/selector.c
+	mkdir -p $(BUILD_FOLDER)
+	$(COMPILER) $(COMPILER_FLAGS) -Isrc $^ $(CHECK_LIBS) -o $@
+
+$(BUILD_FOLDER)/socks5_greeting_test: src/server/socks5_greeting_test.c src/server/socks5_greeting.c
 	mkdir -p $(BUILD_FOLDER)
 	$(COMPILER) $(COMPILER_FLAGS) -Isrc $^ $(CHECK_LIBS) -o $@

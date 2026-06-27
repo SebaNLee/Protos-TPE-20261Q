@@ -10,6 +10,8 @@
 #include "../selector.h"
 #include "../stm.h"
 
+#include "socks5_greeting.h"
+
 #define SOCKS_BUFFER_SIZE 4096
 
 /*
@@ -60,6 +62,10 @@ struct socks_session
     uint8_t o2c_backing[SOCKS_BUFFER_SIZE];
 
     struct state_machine stm;
+    socks_greeting_parser greeting;
+
+    /* Cierra la sesión una vez que o2c quedó vacío (p. ej. tras rechazar greeting). */
+    bool close_after_flush;
 
     /* Dirección de destino parseada del CONNECT (IPv4/IPv6) o resuelta por DNS */
     struct sockaddr_storage dest_addr;

@@ -13,8 +13,8 @@
  *                 ├── c2o / o2c  (dos buffers en cruz)
  *                 └── stm        (estados del protocolo SOCKS)
  *
- * Paso 1: estructuras + accept + I/O básico hacia el cliente.
- * Pendiente: parser SOCKS, connect al origen, relay bidireccional.
+ * Paso 2: parser del greeting SOCKS5 (method negotiation).
+ * Pendiente: auth, CONNECT, connect al origen, relay.
  */
 #include "socks.h"
 
@@ -27,11 +27,83 @@
 
 /* ==========================================================================
  * Máquina de estados (STM)
- *
- * Cada sesión avanza por estados según el protocolo SOCKS5. Por ahora todos
- * los handlers son STUBS: implementaciones vacías que se quedan en el mismo
- * estado hasta que agreguemos el parser (paso 2).
  * ========================================================================== */
+
+static unsigned socks_stub_stay(struct selector_key *key);
+static unsigned socks_on_read_greeting(struct selector_key *key);
+static void socks_unregister_session(struct selector_key *key);
+
+static bool socks_o2c_append(struct socks_session *session,
+                             const uint8_t *data,
+                             size_t len)
+{
+    size_t available = 0;
+    uint8_t *ptr = buffer_write_ptr(&session->o2c, &available);
+
+    if (available < len)
+    {
+        return false;
+    }
+
+    memcpy(ptr, data, len);
+    buffer_write_adv(&session->o2c, (ssize_t)len);
+    return true;
+}
+
+/*
+ * Procesa bytes del greeting en c2o. Si el mensaje es válido y ofrece
+ * username/password, encola [05][02] en o2c y pasa a AUTH_USERPASS.
+ * Si no, encola [05][FF] y marca la sesión para cerrar tras enviar.
+ */
+static unsigned socks_on_read_greeting(struct selector_key *key)
+{
+    struct socks_session *session = key->data;
+
+    while (buffer_can_read(&session->c2o))
+    {
+        size_t pending = 0;
+        const uint8_t *ptr = buffer_read_ptr(&session->c2o, &pending);
+
+        if (pending == 0)
+        {
+            break;
+        }
+
+        const socks_greeting_status status =
+            socks_greeting_parser_feed(&session->greeting, ptr[0]);
+        buffer_read_adv(&session->c2o, 1);
+
+        if (status == SOCKS_GREETING_NEED_MORE)
+        {
+            continue;
+        }
+
+        if (status == SOCKS_GREETING_ACCEPT)
+        {
+            static const uint8_t resp[] = {0x05, 0x02};
+
+            if (!socks_o2c_append(session, resp, sizeof(resp)))
+            {
+                socks_unregister_session(key);
+                return SOCKS_ST_DONE;
+            }
+            return SOCKS_ST_AUTH_USERPASS;
+        }
+
+        static const uint8_t reject[] = {0x05, 0xFF};
+
+        if (!socks_o2c_append(session, reject, sizeof(reject)))
+        {
+            socks_unregister_session(key);
+            return SOCKS_ST_DONE;
+        }
+
+        session->close_after_flush = true;
+        return SOCKS_ST_DONE;
+    }
+
+    return SOCKS_ST_AUTH_GREETING;
+}
 
 /*
  * Stub: devuelve el estado actual sin transicionar.
@@ -48,7 +120,7 @@ static unsigned socks_stub_stay(struct selector_key *key)
 static const struct state_definition socks_state_table[] = {
     {
         .state = SOCKS_ST_AUTH_GREETING,
-        .on_read_ready = socks_stub_stay,
+        .on_read_ready = socks_on_read_greeting,
         .on_write_ready = socks_stub_stay,
     },
     {
@@ -104,6 +176,9 @@ static void socks_session_init(struct socks_session *session,
 
     buffer_init(&session->c2o, SOCKS_BUFFER_SIZE, session->c2o_backing);
     buffer_init(&session->o2c, SOCKS_BUFFER_SIZE, session->o2c_backing);
+
+    socks_greeting_parser_init(&session->greeting);
+    session->close_after_flush = false;
 
     socks_session_stm_init(session);
 }
@@ -168,8 +243,8 @@ static void socks_unregister_session(struct selector_key *key)
 /*
  * READ del browser: socket → c2o → stm_handler_read.
  *
- * Los bytes quedan en c2o para que el parser (paso 2) los consuma.
- * Hoy el stub del STM no hace nada con ellos.
+ * Los bytes quedan en c2o; el STM (greeting) los consume y puede encolar
+ * la respuesta en o2c.
  */
 static void socks_client_read(struct selector_key *key)
 {
@@ -238,6 +313,13 @@ static void socks_client_write(struct selector_key *key)
     buffer_read_adv(&session->o2c, n);
     buffer_compact(&session->o2c);
     stm_handler_write(&session->stm, key);
+
+    if (session->close_after_flush && !buffer_can_read(&session->o2c))
+    {
+        socks_unregister_session(key);
+        return;
+    }
+
     selector_set_interest_key(key, socks_client_interest(session));
 }
 
