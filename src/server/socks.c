@@ -13,8 +13,9 @@
  *                 ├── c2o / o2c  (dos buffers en cruz)
  *                 └── stm        (estados del protocolo SOCKS)
  *
- * Paso 2: parser del greeting SOCKS5 (method negotiation).
- * Pendiente: auth, CONNECT, connect al origen, relay.
+ * Paso 2: greeting SOCKS5 (method negotiation).
+ * Paso 3: autenticación RFC 1929 (username/password).
+ * Pendiente: CONNECT, connect al origen, relay.
  */
 #include "socks.h"
 
@@ -31,6 +32,7 @@
 
 static unsigned socks_stub_stay(struct selector_key *key);
 static unsigned socks_on_read_greeting(struct selector_key *key);
+static unsigned socks_on_read_auth(struct selector_key *key);
 static void socks_unregister_session(struct selector_key *key);
 
 static bool socks_o2c_append(struct socks_session *session,
@@ -51,9 +53,9 @@ static bool socks_o2c_append(struct socks_session *session,
 }
 
 /*
- * Procesa bytes del greeting en c2o. Si el mensaje es válido y ofrece
- * username/password, encola [05][02] en o2c y pasa a AUTH_USERPASS.
- * Si no, encola [05][FF] y marca la sesión para cerrar tras enviar.
+ * Paso 2 — Greeting (RFC 1928).
+ * Si el mensaje es válido y ofrece username/password, encola [05][02] en o2c
+ * y pasa a AUTH_USERPASS. Si no, encola [05][FF] y cierra tras enviar.
  */
 static unsigned socks_on_read_greeting(struct selector_key *key)
 {
@@ -106,6 +108,86 @@ static unsigned socks_on_read_greeting(struct selector_key *key)
 }
 
 /*
+ * Paso 3 — Autenticación (RFC 1929).
+ *
+ * Mismo patrón que socks_on_read_greeting: consume c2o byte a byte,
+ * alimenta session->auth, y según el resultado:
+ *
+ *   PARSED + validate OK  → [01][00] en o2c → SOCKS_ST_REQUEST
+ *   PARSED + validate fail → [01][01] en o2c → cierre
+ *   REJECT (mal formado)   → [01][01] en o2c → cierre
+ *
+ * Ejemplo admin/admin en el wire:
+ *   01 05 61 64 6d 69 6e 05 61 64 6d 69 6e
+ */
+static unsigned socks_on_read_auth(struct selector_key *key)
+{
+    struct socks_session *session = key->data;
+
+    while (buffer_can_read(&session->c2o))
+    {
+        size_t pending = 0;
+        const uint8_t *ptr = buffer_read_ptr(&session->c2o, &pending);
+
+        if (pending == 0)
+        {
+            break;
+        }
+
+        const socks_auth_status status =
+            socks_auth_parser_feed(&session->auth, ptr[0]);
+        buffer_read_adv(&session->c2o, 1);
+
+        if (status == SOCKS_AUTH_NEED_MORE)
+        {
+            continue;
+        }
+
+        if (status == SOCKS_AUTH_REJECT)
+        {
+            /* Mensaje mal formado (versión incorrecta, ulen=0, etc.). */
+            static const uint8_t reject[] = {0x01, 0x01};
+
+            if (!socks_o2c_append(session, reject, sizeof(reject)))
+            {
+                socks_unregister_session(key);
+                return SOCKS_ST_DONE;
+            }
+
+            session->close_after_flush = true;
+            return SOCKS_ST_DONE;
+        }
+
+        if (socks_auth_validate(&session->auth))
+        {
+            /* Credenciales correctas: el browser puede mandar el CONNECT. */
+            static const uint8_t ok[] = {0x01, 0x00};
+
+            if (!socks_o2c_append(session, ok, sizeof(ok)))
+            {
+                socks_unregister_session(key);
+                return SOCKS_ST_DONE;
+            }
+            return SOCKS_ST_REQUEST;
+        }
+
+        /* Mensaje bien formado pero usuario/contraseña incorrectos. */
+        static const uint8_t fail[] = {0x01, 0x01};
+
+        if (!socks_o2c_append(session, fail, sizeof(fail)))
+        {
+            socks_unregister_session(key);
+            return SOCKS_ST_DONE;
+        }
+
+        session->close_after_flush = true;
+        return SOCKS_ST_DONE;
+    }
+
+    return SOCKS_ST_AUTH_USERPASS;
+}
+
+/*
  * Stub: devuelve el estado actual sin transicionar.
  * El STM exige on_read_ready/on_write_ready no nulos; esto cumple la interfaz
  * sin lógica de protocolo todavía.
@@ -125,7 +207,7 @@ static const struct state_definition socks_state_table[] = {
     },
     {
         .state = SOCKS_ST_AUTH_USERPASS,
-        .on_read_ready = socks_stub_stay,
+        .on_read_ready = socks_on_read_auth,
         .on_write_ready = socks_stub_stay,
     },
     {
@@ -178,6 +260,7 @@ static void socks_session_init(struct socks_session *session,
     buffer_init(&session->o2c, SOCKS_BUFFER_SIZE, session->o2c_backing);
 
     socks_greeting_parser_init(&session->greeting);
+    socks_auth_parser_init(&session->auth);
     session->close_after_flush = false;
 
     socks_session_stm_init(session);

@@ -11,6 +11,7 @@
 #include "../stm.h"
 
 #include "socks5_greeting.h"
+#include "socks5_auth.h"
 
 #define SOCKS_BUFFER_SIZE 4096
 
@@ -62,7 +63,8 @@ struct socks_session
     uint8_t o2c_backing[SOCKS_BUFFER_SIZE];
 
     struct state_machine stm;
-    socks_greeting_parser greeting;
+    socks_greeting_parser greeting; /* Parser paso 2: method negotiation */
+    socks_auth_parser auth;         /* Parser paso 3: username/password */
 
     /* Cierra la sesión una vez que o2c quedó vacío (p. ej. tras rechazar greeting). */
     bool close_after_flush;
