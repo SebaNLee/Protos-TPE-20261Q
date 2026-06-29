@@ -33,10 +33,10 @@ typedef enum
 typedef struct socks_auth_parser
 {
     unsigned state;
-    uint8_t uname_len;          /* Longitud total del usuario (ULEN) */
-    uint8_t passwd_len;         /* Longitud total de la contraseña (PLEN) */
-    uint8_t uname_remaining;    /* Bytes de usuario que faltan leer */
-    uint8_t passwd_remaining;   /* Bytes de contraseña que faltan leer */
+    uint8_t uname_len;        /* Longitud total del usuario (ULEN) */
+    uint8_t passwd_len;       /* Longitud total de la contraseña (PLEN) */
+    uint8_t uname_remaining;  /* Bytes de usuario que faltan leer */
+    uint8_t passwd_remaining; /* Bytes de contraseña que faltan leer */
     uint8_t uname[SOCKS_AUTH_MAX_LEN];
     uint8_t passwd[SOCKS_AUTH_MAX_LEN];
 } socks_auth_parser;

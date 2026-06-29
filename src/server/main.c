@@ -1,4 +1,4 @@
-#include "socks.h"
+#include "server/socks/socks.h"
 
 #include <errno.h>
 #include <signal.h>

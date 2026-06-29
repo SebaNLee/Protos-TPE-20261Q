@@ -6,13 +6,13 @@
 
 #include <netinet/in.h>
 
-#include "../buffer.h"
-#include "../selector.h"
-#include "../stm.h"
+#include "shared/buffer.h"
+#include "shared/selector.h"
+#include "shared/stm.h"
 
-#include "socks5_greeting.h"
-#include "socks5_auth.h"
-#include "socks5_request.h"
+#include "server/socks/auth/auth.h"
+#include "server/socks/greeting/greeting.h"
+#include "server/socks/request/request.h"
 
 #define SOCKS_BUFFER_SIZE 4096
 

@@ -13,7 +13,7 @@
  * socks.c consume c2o, llama a feed(), y según el resultado encola la
  * respuesta en o2c.
  */
-#include "socks5_auth.h"
+#include "auth.h"
 
 #include <string.h>
 
@@ -22,11 +22,11 @@
 /* Estados del parser (orden del mensaje en el wire). */
 enum auth_state
 {
-    AUTH_VER = 0,   /* Espera 0x01 */
-    AUTH_ULEN,      /* Lee longitud del usuario */
-    AUTH_UNAME,     /* Lee ULEN bytes de nombre */
-    AUTH_PLEN,      /* Lee longitud de la contraseña */
-    AUTH_PASSWD,    /* Lee PLEN bytes de contraseña */
+    AUTH_VER = 0, /* Espera 0x01 */
+    AUTH_ULEN,    /* Lee longitud del usuario */
+    AUTH_UNAME,   /* Lee ULEN bytes de nombre */
+    AUTH_PLEN,    /* Lee longitud de la contraseña */
+    AUTH_PASSWD,  /* Lee PLEN bytes de contraseña */
 };
 
 void socks_auth_parser_init(socks_auth_parser *parser)
@@ -61,7 +61,7 @@ const uint8_t *socks_auth_password(const socks_auth_parser *parser)
 /*
  * Valida usuario/contraseña contra la lista del servidor.
  */
- // TODO: reemplazar por tabla de usuarios del protocolo de monitoreo del TP.
+// TODO: reemplazar por tabla de usuarios del protocolo de monitoreo del TP.
 bool socks_auth_validate(const socks_auth_parser *parser)
 {
     static const char valid_user[] = "admin";

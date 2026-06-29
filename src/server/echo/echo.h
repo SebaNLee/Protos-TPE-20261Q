@@ -4,8 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "../buffer.h"
-#include "../selector.h"
+#include "shared/buffer.h"
+#include "shared/selector.h"
 
 #define ECHO_BUFFER_SIZE 4096
 

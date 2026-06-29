@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "server/socks5_auth.h"
+#include "auth.h"
 
 static socks_auth_status feed_bytes(socks_auth_parser *parser,
                                     const uint8_t *bytes,
