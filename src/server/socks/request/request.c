@@ -15,7 +15,7 @@
  * Mismo patrón que greeting/auth: feed() procesa un byte y devuelve
  * NEED_MORE hasta tener el mensaje completo.
  */
-#include "socks5_request.h"
+#include "request.h"
 
 #include <arpa/inet.h>
 #include <string.h>
