@@ -19,7 +19,7 @@
 /*
  * Estados de autenticación por sesión admin.
  *
- *   AWAIT_AUTH      → solo AUTH aceptado; resto → -ERR not authenticated
+ *   AWAIT_AUTH      → AUTH y HELP; resto → -ERR not authenticated
  *   AUTHENTICATED   → todos los comandos excepto AUTH repetido
  */
 typedef enum

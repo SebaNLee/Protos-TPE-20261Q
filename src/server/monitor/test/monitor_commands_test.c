@@ -508,6 +508,23 @@ START_TEST(test_set_password_missing)
 }
 END_TEST
 
+START_TEST(test_help_before_auth)
+{
+    struct monitor_store *store = store_create();
+    struct monitor_commands_session proto;
+    setup_commands(&proto, store);
+    char out[MT_DRAIN_SIZE];
+
+    mt_feed(&proto, "HELP\n");
+    mt_drain_all(&proto, out, sizeof(out));
+    mt_assert_has(out, "Available commands:");
+    mt_assert_has(out, "AUTH username password");
+    ck_assert_int_eq(MONITOR_ST_AWAIT_AUTH, proto.state);
+
+    store_destroy(store);
+}
+END_TEST
+
 START_TEST(test_help)
 {
     struct monitor_store *store = store_create();
@@ -643,6 +660,7 @@ Suite *monitor_commands_suite(void)
     tcase_add_test(tc, test_del_last_admin);
     tcase_add_test(tc, test_set_password);
     tcase_add_test(tc, test_set_password_missing);
+    tcase_add_test(tc, test_help_before_auth);
     tcase_add_test(tc, test_help);
     tcase_add_test(tc, test_help_stats);
     tcase_add_test(tc, test_help_unknown);

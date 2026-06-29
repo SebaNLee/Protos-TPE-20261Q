@@ -11,8 +11,8 @@
  * Formato: texto línea a línea, termina con '\n' (acepta '\r\n').
  * monitor.c lee del socket → feed(); las respuestas van a wb.
  *
- * Comandos post-auth: STATS, CONNECTIONS, USERS, CONFIG, ACCESS_LOG,
- * ADD_USER, DEL_USER, SET_PASSWORD, HELP, QUIT.
+ * Pre-auth: AUTH, HELP. Post-auth: STATS, CONNECTIONS, USERS, CONFIG,
+ * ACCESS_LOG, ADD_USER, DEL_USER, SET_PASSWORD, HELP, QUIT.
  */
 
 typedef struct
@@ -481,7 +481,7 @@ static void handle_quit(struct monitor_commands_session *session)
 
 /*
  * Puerta de auth y router de comandos.
- * AWAIT_AUTH: solo AUTH; AUTHENTICATED: resto (AUTH repetido → error).
+ * AWAIT_AUTH: AUTH y HELP; AUTHENTICATED: resto (AUTH repetido → error).
  */
 static void dispatch_line(struct monitor_commands_session *session, char *line)
 {
@@ -499,6 +499,10 @@ static void dispatch_line(struct monitor_commands_session *session, char *line)
         if (strcmp(cmd.cmd, "AUTH") == 0)
         {
             handle_auth(session, &cmd);
+        }
+        else if (strcmp(cmd.cmd, "HELP") == 0)
+        {
+            handle_help(session, &cmd);
         }
         else
         {
