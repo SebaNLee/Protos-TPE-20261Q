@@ -1,19 +1,22 @@
 /*
- * socks5_auth.c — Autenticación username/password (RFC 1929).
+ * auth.c — Autenticación username/password de SOCKS5 (RFC 1929).
  *
- * Este mensaje va DESPUÉS del greeting (cuando el servidor eligió método 0x02).
+ * Este mensaje va DESPUÉS del greeting, cuando el servidor eligió método 0x02.
  *
- * Cliente manda:
+ * Formato en el wire (cliente → servidor):
  *   VER(1) | ULEN(1) | UNAME(1..255) | PLEN(1) | PASSWD(1..255)
  *
- * Servidor responde:
+ * Respuesta del servidor:
  *   VER(1) | STATUS(1)     STATUS=0x00 ok, 0x01 fallo
  *
- * El parser es una máquina de estados byte-a-byte (igual que socks5_greeting).
- * socks.c consume c2o, llama a feed(), y según el resultado encola la
- * respuesta en o2c.
+ * El parser avanza byte a byte (igual que greeting/request).
+ * socks.c lee de c2o, llama feed(), y según el resultado encola la respuesta en o2c.
+ *
+ * Las credenciales se validan contra monitor_store (misma tabla que ADD_USER).
  */
 #include "auth.h"
+
+#include "server/monitor/store.h"
 
 #include <string.h>
 
@@ -58,28 +61,34 @@ const uint8_t *socks_auth_password(const socks_auth_parser *parser)
     return parser != NULL ? parser->passwd : NULL;
 }
 
-/*
- * Valida usuario/contraseña contra la lista del servidor.
- */
-// TODO: reemplazar por tabla de usuarios del protocolo de monitoreo del TP.
-bool socks_auth_validate(const socks_auth_parser *parser)
+bool socks_auth_validate(const socks_auth_parser *parser,
+                         struct monitor_store *store)
 {
-    static const char valid_user[] = "admin";
-    static const char valid_pass[] = "admin";
+    char username[SOCKS_AUTH_MAX_LEN + 1];
+    char password[SOCKS_AUTH_MAX_LEN + 1];
 
-    if (parser == NULL)
+    /*
+     * Compara user+pass contra la tabla compartida del store.
+     * Cualquier rol (user o admin) puede autenticarse en SOCKS.
+     * El rol admin solo importa para el puerto de monitoreo (8080).
+     */
+    if (parser == NULL || store == NULL)
     {
         return false;
     }
 
-    if (parser->uname_len != strlen(valid_user) ||
-        parser->passwd_len != strlen(valid_pass))
+    if (parser->uname_len == 0 || parser->uname_len > SOCKS_AUTH_MAX_LEN ||
+        parser->passwd_len == 0 || parser->passwd_len > SOCKS_AUTH_MAX_LEN)
     {
         return false;
     }
 
-    return memcmp(parser->uname, valid_user, parser->uname_len) == 0 &&
-           memcmp(parser->passwd, valid_pass, parser->passwd_len) == 0;
+    memcpy(username, parser->uname, parser->uname_len);
+    username[parser->uname_len] = '\0';
+    memcpy(password, parser->passwd, parser->passwd_len);
+    password[parser->passwd_len] = '\0';
+
+    return store_user_validate(store, username, password);
 }
 
 /*

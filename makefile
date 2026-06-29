@@ -28,7 +28,10 @@ TEST_BINARIES  = $(BUILD_FOLDER)/buffer_test \
                  $(BUILD_FOLDER)/echo_test \
                  $(BUILD_FOLDER)/greeting_test \
                  $(BUILD_FOLDER)/auth_test \
-                 $(BUILD_FOLDER)/request_test
+                 $(BUILD_FOLDER)/request_test \
+                 $(BUILD_FOLDER)/store_test \
+                 $(BUILD_FOLDER)/monitor_commands_test \
+                 $(BUILD_FOLDER)/monitor_test
 
 TARGETS        :=
 ifneq ($(SERVER_SOURCES),)
@@ -101,10 +104,22 @@ $(BUILD_FOLDER)/greeting_test: src/server/socks/greeting/test/greeting_test.c sr
 	mkdir -p $(BUILD_FOLDER)
 	$(COMPILER) $(COMPILER_FLAGS) -Isrc/server/socks/greeting $^ $(CHECK_LIBS) -o $@
 
-$(BUILD_FOLDER)/auth_test: src/server/socks/auth/test/auth_test.c src/server/socks/auth/auth.c
+$(BUILD_FOLDER)/auth_test: src/server/socks/auth/test/auth_test.c src/server/socks/auth/auth.c src/server/monitor/store.c
 	mkdir -p $(BUILD_FOLDER)
-	$(COMPILER) $(COMPILER_FLAGS) -Isrc/server/socks/auth $^ $(CHECK_LIBS) -o $@
+	$(COMPILER) $(COMPILER_FLAGS) -Isrc/server/socks/auth -Isrc/server/monitor $^ $(CHECK_LIBS) -o $@
 
 $(BUILD_FOLDER)/request_test: src/server/socks/request/test/request_test.c src/server/socks/request/request.c
 	mkdir -p $(BUILD_FOLDER)
 	$(COMPILER) $(COMPILER_FLAGS) -Isrc/server/socks/request $^ $(CHECK_LIBS) -o $@
+
+$(BUILD_FOLDER)/store_test: src/server/monitor/test/store_test.c src/server/monitor/store.c
+	mkdir -p $(BUILD_FOLDER)
+	$(COMPILER) $(COMPILER_FLAGS) -Isrc/server/monitor $^ $(CHECK_LIBS) -o $@
+
+$(BUILD_FOLDER)/monitor_commands_test: src/server/monitor/test/monitor_commands_test.c src/server/monitor/monitor_commands.c src/server/monitor/store.c src/shared/buffer.c
+	mkdir -p $(BUILD_FOLDER)
+	$(COMPILER) $(COMPILER_FLAGS) -Isrc/server/monitor -Isrc/shared $^ $(CHECK_LIBS) -o $@
+
+$(BUILD_FOLDER)/monitor_test: src/server/monitor/test/monitor_test.c src/server/monitor/monitor.c src/server/monitor/monitor_commands.c src/server/monitor/store.c src/shared/buffer.c src/shared/selector.c
+	mkdir -p $(BUILD_FOLDER)
+	$(COMPILER) $(COMPILER_FLAGS) -Isrc/server/monitor -Isrc/shared $^ $(CHECK_LIBS) -o $@

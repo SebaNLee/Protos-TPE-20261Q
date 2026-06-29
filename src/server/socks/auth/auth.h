@@ -54,11 +54,13 @@ const uint8_t *socks_auth_username(const socks_auth_parser *parser);
 
 const uint8_t *socks_auth_password(const socks_auth_parser *parser);
 
+struct monitor_store;
+
 /*
- * Compara credenciales parseadas con las válidas del servidor.
- * Por ahora hardcodeado: admin / admin (se reemplazará con el protocolo
- * de monitoreo del TP para agregar usuarios en runtime).
+ * Compara credenciales ya parseadas contra monitor_store.
+ * Llamar desde socks.c cuando feed() devuelve PARSED.
  */
-bool socks_auth_validate(const socks_auth_parser *parser);
+bool socks_auth_validate(const socks_auth_parser *parser,
+                         struct monitor_store *store);
 
 #endif
