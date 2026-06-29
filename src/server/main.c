@@ -1,4 +1,22 @@
+#include "server/monitor/monitor.h"
+#include "server/monitor/store.h"
 #include "server/socks/socks.h"
+
+/*
+ * main.c — punto de entrada del servidor.
+ *
+ * Arquitectura:
+ *   - Un solo thread con selector (campus)
+ *   - Un monitor_store compartido entre SOCKS y monitoreo
+ *   - Dos sockets pasivos en el mismo selector:
+ *       -p 1080  → clientes SOCKS5
+ *       -m 8080  → administradores (protocolo de texto)
+ *
+ * Graceful shutdown (SIGINT / SIGTERM):
+ *   1. Primera señal → deja de aceptar conexiones nuevas
+ *   2. El loop sigue hasta que no queden sesiones activas
+ *   3. Segunda señal → salida inmediata (_exit)
+ */
 
 #include <errno.h>
 #include <signal.h>
@@ -36,27 +54,41 @@ static void install_signal_handlers(void)
 
 static void usage(const char *program)
 {
-    fprintf(stderr, "Usage: %s [-p port]\n", program);
+    fprintf(stderr, "Usage: %s [-p socks_port] [-m monitor_port]\n", program);
+    fprintf(stderr, "  -p  SOCKS5 port (default 1080)\n");
+    fprintf(stderr, "  -m  Monitor port (default 8080)\n");
 }
 
-static int parse_args(int argc, char **argv, uint16_t *port)
+static int parse_args(int argc,
+                      char **argv,
+                      uint16_t *socks_port,
+                      uint16_t *monitor_port)
 {
     int opt;
 
-    *port = 1080;
+    *socks_port = 1080;
+    *monitor_port = 8080;
 
-    while ((opt = getopt(argc, argv, "p:h")) != -1)
+    while ((opt = getopt(argc, argv, "p:m:h")) != -1)
     {
         switch (opt)
         {
         case 'p':
+        case 'm':
         {
             const long value = strtol(optarg, NULL, 10);
             if (value <= 0 || value > 65535)
             {
                 return -1;
             }
-            *port = (uint16_t)value;
+            if (opt == 'p')
+            {
+                *socks_port = (uint16_t)value;
+            }
+            else
+            {
+                *monitor_port = (uint16_t)value;
+            }
             break;
         }
         case 'h':
@@ -71,10 +103,17 @@ static int parse_args(int argc, char **argv, uint16_t *port)
     return 0;
 }
 
+static bool servers_is_empty(struct socks_server *socks,
+                             struct monitor_server *monitor)
+{
+    return socks_server_is_empty(socks) && monitor_server_is_empty(monitor);
+}
+
 int main(int argc, char **argv)
 {
-    uint16_t port = 1080;
-    const int args_status = parse_args(argc, argv, &port);
+    uint16_t socks_port = 1080;
+    uint16_t monitor_port = 8080;
+    const int args_status = parse_args(argc, argv, &socks_port, &monitor_port);
 
     if (args_status != 0)
     {
@@ -102,28 +141,56 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    // entrypoint al socks server
-
-    volatile bool stop = false;
-    struct socks_server *server = NULL;
-
-    if (socks_server_init(selector, port, &stop, &server) != SELECTOR_SUCCESS)
+    struct monitor_store *store = store_create();
+    if (store == NULL)
     {
-        fprintf(stderr, "socks_server_init failed: %s\n", strerror(errno));
+        fprintf(stderr, "store_create failed\n");
         selector_destroy(selector);
         selector_close();
         return EXIT_FAILURE;
     }
 
-    // mientras haya conexiones activas atiende los pedidos de conexión
-    while (!socks_server_is_empty(server))
+    /* *stop=true hace que ambos listen sockets dejen de aceptar (graceful shutdown) */
+    volatile bool stop = false;
+    struct socks_server *socks = NULL;
+    struct monitor_server *monitor = NULL;
+
+    if (socks_server_init(selector, socks_port, &stop, store, &socks) !=
+        SELECTOR_SUCCESS)
+    {
+        fprintf(stderr, "socks_server_init failed: %s\n", strerror(errno));
+        store_destroy(store);
+        selector_destroy(selector);
+        selector_close();
+        return EXIT_FAILURE;
+    }
+
+    if (monitor_server_init(selector, monitor_port, &stop, store, &monitor) !=
+        SELECTOR_SUCCESS)
+    {
+        fprintf(stderr, "monitor_server_init failed: %s\n", strerror(errno));
+        socks_server_destroy(socks);
+        store_destroy(store);
+        selector_destroy(selector);
+        selector_close();
+        return EXIT_FAILURE;
+    }
+
+    while (!servers_is_empty(socks, monitor))
     {
         if (shutdown_requested)
         {
             stop = true;
         }
 
-        if (socks_server_run_once(server) != SELECTOR_SUCCESS && errno != EINTR)
+        if (stop)
+        {
+            /* Fase 1 del shutdown: no aceptar más clientes SOCKS ni admin */
+            socks_server_stop_accepting(socks);
+            monitor_server_stop_accepting(monitor);
+        }
+
+        if (selector_select(selector) != SELECTOR_SUCCESS && errno != EINTR)
         {
             break;
         }
@@ -134,7 +201,9 @@ int main(int argc, char **argv)
         }
     }
 
-    socks_server_destroy(server);
+    monitor_server_destroy(monitor);
+    socks_server_destroy(socks);
+    store_destroy(store);
     selector_destroy(selector);
     selector_close();
 
