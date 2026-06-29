@@ -558,6 +558,36 @@ START_TEST(test_help_stats)
 }
 END_TEST
 
+START_TEST(test_help_connections)
+{
+    struct monitor_store *store = store_create();
+    struct monitor_commands_session proto;
+    setup_commands(&proto, store);
+    char out[MT_DRAIN_SIZE];
+
+    mt_feed(&proto, "HELP CONNECTIONS\n");
+    mt_drain_all(&proto, out, sizeof(out));
+    mt_assert_has(out, "CONNECTIONS — list active SOCKS sessions");
+
+    store_destroy(store);
+}
+END_TEST
+
+START_TEST(test_help_users)
+{
+    struct monitor_store *store = store_create();
+    struct monitor_commands_session proto;
+    setup_commands(&proto, store);
+    char out[MT_DRAIN_SIZE];
+
+    mt_feed(&proto, "HELP USERS\n");
+    mt_drain_all(&proto, out, sizeof(out));
+    mt_assert_has(out, "USERS — list usernames with active SOCKS connections");
+
+    store_destroy(store);
+}
+END_TEST
+
 START_TEST(test_help_unknown)
 {
     struct monitor_store *store = store_create();
@@ -663,6 +693,8 @@ Suite *monitor_commands_suite(void)
     tcase_add_test(tc, test_help_before_auth);
     tcase_add_test(tc, test_help);
     tcase_add_test(tc, test_help_stats);
+    tcase_add_test(tc, test_help_connections);
+    tcase_add_test(tc, test_help_users);
     tcase_add_test(tc, test_help_unknown);
     tcase_add_test(tc, test_quit);
     tcase_add_test(tc, test_unknown_cmd);

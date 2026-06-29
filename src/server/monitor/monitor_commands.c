@@ -435,9 +435,40 @@ static void handle_set_password(struct monitor_commands_session *session, monito
     }
 }
 
-/* HELP: lista comandos o describe uno puntual (CONFIG, STATS). */
+/* HELP: lista comandos o describe uno puntual. */
 static void handle_help(struct monitor_commands_session *session, monitor_cmd *cmd)
 {
+    static const struct
+    {
+        const char *name;
+        const char *desc;
+    } topics[] = {
+        {"AUTH",
+         "AUTH username password — authenticate as admin (required before other "
+         "commands except HELP)"},
+        {"STATS",
+         "STATS — show server metrics (total_connections, concurrent_connections, "
+         "bytes_up, bytes_down)"},
+        {"CONNECTIONS",
+         "CONNECTIONS — list active SOCKS sessions (username host:port phase "
+         "bytes_up bytes_down)"},
+        {"USERS", "USERS — list usernames with active SOCKS connections"},
+        {"CONFIG",
+         "CONFIG param value — change runtime setting (timeout, max_connections, "
+         "io_buffer_size)"},
+        {"ACCESS_LOG",
+         "ACCESS_LOG [username] — show connection audit trail, optionally filtered "
+         "by user"},
+        {"ADD_USER",
+         "ADD_USER username password [admin] — create SOCKS user; append admin "
+         "for admin role"},
+        {"DEL_USER", "DEL_USER username — remove user from table"},
+        {"SET_PASSWORD",
+         "SET_PASSWORD username newpassword — change password for an existing user"},
+        {"HELP", "HELP [command] — list commands or describe one command"},
+        {"QUIT", "QUIT — close the connection gracefully"},
+    };
+
     if (cmd->argc == 1)
     {
         commands_wb_append(session, "+OK Available commands:\n");
@@ -455,18 +486,13 @@ static void handle_help(struct monitor_commands_session *session, monitor_cmd *c
         return;
     }
 
-    if (strcmp(cmd->args[1], "CONFIG") == 0)
+    for (size_t i = 0; i < sizeof(topics) / sizeof(topics[0]); i++)
     {
-        commands_wb_append(session,
-                           "+OK CONFIG param value — change runtime setting "
-                           "(timeout, max_connections, io_buffer_size)\n");
-        return;
-    }
-
-    if (strcmp(cmd->args[1], "STATS") == 0)
-    {
-        commands_wb_append(session, "+OK STATS — show server metrics\n");
-        return;
+        if (strcmp(cmd->args[1], topics[i].name) == 0)
+        {
+            commands_wb_appendf(session, "+OK %s\n", topics[i].desc);
+            return;
+        }
     }
 
     commands_wb_append(session, "-ERR unknown command\n");
