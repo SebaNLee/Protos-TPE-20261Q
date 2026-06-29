@@ -22,7 +22,10 @@ TEST_BINARIES  = $(BUILD_FOLDER)/buffer_test \
                  $(BUILD_FOLDER)/parser_utils_test \
                  $(BUILD_FOLDER)/netutils_test \
                  $(BUILD_FOLDER)/stm_test \
-                 $(BUILD_FOLDER)/echo_server_test
+                 $(BUILD_FOLDER)/echo_server_test \
+                 $(BUILD_FOLDER)/socks5_greeting_test \
+                 $(BUILD_FOLDER)/socks5_auth_test \
+                 $(BUILD_FOLDER)/socks5_request_test
 
 TARGETS        :=
 ifneq ($(SERVER_SOURCES),)
@@ -53,7 +56,7 @@ clean:
 
 $(SERVER_OUTPUT): $(SERVER_OBJECTS) $(SHARED_OBJECTS)
 	mkdir -p $(BIN_FOLDER)
-	$(COMPILER) $(COMPILER_FLAGS) $^ $(LINKER_FLAGS) -o $@
+	$(COMPILER) $(COMPILER_FLAGS) $^ $(LINKER_FLAGS) -lpthread -o $@
 
 $(CLIENT_OUTPUT): $(CLIENT_OBJECTS) $(SHARED_OBJECTS)
 	mkdir -p $(BIN_FOLDER)
@@ -88,5 +91,17 @@ $(BUILD_FOLDER)/stm_test: src/stm_test.c src/stm.c
 	$(COMPILER) $(COMPILER_FLAGS) $^ $(CHECK_LIBS) -o $@
 
 $(BUILD_FOLDER)/echo_server_test: src/echo_server_test.c src/server/echo.c src/buffer.c src/selector.c
+	mkdir -p $(BUILD_FOLDER)
+	$(COMPILER) $(COMPILER_FLAGS) -Isrc $^ $(CHECK_LIBS) -o $@
+
+$(BUILD_FOLDER)/socks5_greeting_test: src/server/socks5_greeting_test.c src/server/socks5_greeting.c
+	mkdir -p $(BUILD_FOLDER)
+	$(COMPILER) $(COMPILER_FLAGS) -Isrc $^ $(CHECK_LIBS) -o $@
+
+$(BUILD_FOLDER)/socks5_auth_test: src/server/socks5_auth_test.c src/server/socks5_auth.c
+	mkdir -p $(BUILD_FOLDER)
+	$(COMPILER) $(COMPILER_FLAGS) -Isrc $^ $(CHECK_LIBS) -o $@
+
+$(BUILD_FOLDER)/socks5_request_test: src/server/socks5_request_test.c src/server/socks5_request.c
 	mkdir -p $(BUILD_FOLDER)
 	$(COMPILER) $(COMPILER_FLAGS) -Isrc $^ $(CHECK_LIBS) -o $@
