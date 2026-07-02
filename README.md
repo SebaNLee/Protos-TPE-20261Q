@@ -74,3 +74,9 @@ There is a pre-commit hook that uses Clang when committing for code formatting. 
 ```
 pre-commit install
 ```
+
+### socks5 usage example (current impl)
+
+`
+curl --socks5 admin:admin@localhost:1080 http://google.com
+`
