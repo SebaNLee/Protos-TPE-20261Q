@@ -36,22 +36,25 @@ make all
 
 Using docker. 
 
-Image build:
 
 ```bash
+# Build image
 docker compose build
-```
 
-Build and run tests:
+# Build all (server, client, tests)
+docker compose run --rm dev make all
 
-```bash
+# Build and run all tests
 docker compose run --rm dev make clean test check
-```
 
-Run a single test:
+# Run a single test
+docker compose run --rm dev ./build/<test>
 
-```bash
-docker compose run --rm dev ./build/selector_test
+# Run server (check port mapping on docker-compose.yaml)
+docker compose run --rm --service-ports dev ./bin/server
+
+# Run client
+docker compose run --rm dev ./bin/client
 ```
 
 ## Makefile targets
