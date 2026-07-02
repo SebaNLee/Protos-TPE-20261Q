@@ -327,6 +327,20 @@ static selector_status ensure_capacity(fd_selector s, const size_t n)
     return ret;
 }
 
+static struct epoll_event interest_to_epoll(const int fd, const fd_interest interest)
+{
+    struct epoll_event ev = {.data = {.fd = fd}};
+    if (interest & OP_READ)
+    {
+        ev.events |= EPOLLIN;
+    }
+    if (interest & OP_WRITE)
+    {
+        ev.events |= EPOLLOUT;
+    }
+    return ev;
+}
+
 fd_selector selector_new(const size_t initial_elements)
 {
     size_t size = sizeof(struct fdselector);
@@ -477,6 +491,9 @@ selector_status selector_register(fd_selector s,
             s->max_fd = fd;
         }
         items_update_fdset_for_fd(s, item);
+
+        struct epoll_event ev = interest_to_epoll(fd, interest);
+        epoll_ctl(s->epoll_fd, EPOLL_CTL_ADD, fd, &ev);
     }
 
 finally:
@@ -514,6 +531,8 @@ selector_status selector_unregister_fd(fd_selector s,
     item->interest = OP_NOOP;
     items_update_fdset_for_fd(s, item);
 
+    epoll_ctl(s->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+
     memset(item, 0x00, sizeof(*item));
     item_init(item);
     s->max_fd = items_max_fd(s);
@@ -539,6 +558,9 @@ selector_status selector_set_interest(fd_selector s, int fd, fd_interest i)
     }
     item->interest = i;
     items_update_fdset_for_fd(s, item);
+
+    struct epoll_event ev = interest_to_epoll(fd, i);
+    epoll_ctl(s->epoll_fd, EPOLL_CTL_MOD, fd, &ev);
 finally:
     return ret;
 }
@@ -560,49 +582,60 @@ selector_status selector_set_interest_key(struct selector_key *key, fd_interest 
 }
 
 /**
- * se encarga de manejar los resultados del select.
+ * se encarga de manejar los resultados del select (ahora epoll).
  * se encuentra separado para facilitar el testing
  */
-static void handle_iteration(fd_selector s)
+static void handle_iteration(fd_selector s, const int n_ready)
 {
-    int n = s->max_fd;
     struct selector_key key = {
         .s = s,
     };
 
-    for (int i = 0; i <= n; i++)
+    for (int i = 0; i < n_ready; i++)
     {
-        struct item *item = s->fds + i;
-        if (ITEM_USED(item))
+        struct epoll_event *ev = &s->events[i];
+        int fd = ev->data.fd;
+
+        if (fd == s->event_fd)
         {
-            key.fd = item->fd;
-            key.data = item->data;
-            if (FD_ISSET(item->fd, &s->slave_r))
+            // TODO event
+            continue;
+        }
+
+        struct item *item = &s->fds[fd];
+        if (!ITEM_USED(item))
+        {
+            continue;
+        }
+
+        key.data = item->data;
+        key.fd = fd;
+
+        if (ev->events & (EPOLLIN | EPOLLERR | EPOLLHUP))
+        {
+            if (OP_READ & item->interest)
             {
-                if (OP_READ & item->interest)
+                if (0 == item->handler->handle_read)
                 {
-                    if (0 == item->handler->handle_read)
-                    {
-                        assert(("OP_READ arrived but no handler. bug!" == 0));
-                    }
-                    else
-                    {
-                        item->handler->handle_read(&key);
-                    }
+                    assert(("OP_READ arrived but no handler. bug!" == 0));
+                }
+                else
+                {
+                    item->handler->handle_read(&key);
                 }
             }
-            if (FD_ISSET(i, &s->slave_w))
+        }
+        if (ev->events & (EPOLLOUT | EPOLLERR | EPOLLHUP))
+        {
+            if (OP_WRITE & item->interest)
             {
-                if (OP_WRITE & item->interest)
+                if (0 == item->handler->handle_write)
                 {
-                    if (0 == item->handler->handle_write)
-                    {
-                        assert(("OP_WRITE arrived but no handler. bug!" == 0));
-                    }
-                    else
-                    {
-                        item->handler->handle_write(&key);
-                    }
+                    assert(("OP_WRITE arrived but no handler. bug!" == 0));
+                }
+                else
+                {
+                    item->handler->handle_write(&key);
                 }
             }
         }
