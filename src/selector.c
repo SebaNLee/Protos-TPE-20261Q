@@ -11,6 +11,8 @@
 #include "selector.h"
 #include <fcntl.h>
 #include <stdint.h> // SIZE_MAX
+#include <sys/epoll.h>
+#include <sys/eventfd.h>
 #include <sys/select.h>
 #include <sys/signal.h>
 #include <sys/socket.h>
@@ -162,6 +164,16 @@ struct fdselector
      * notificados.
      */
     struct blocking_job *resolution_jobs;
+
+    // instalcia epoll para multiplexar (reemplaza todo lo de master/slave y sets del select)
+    int epoll_fd;
+
+    // instancia eventfd para manejo de notificaciones (reemplaza señales)
+    int event_fd;
+
+    // array de eventos devueltos por el wait de epoll
+    struct epoll_event *events;
+    size_t events_capacity;
 };
 
 /** cantidad máxima de file descriptors que la plataforma puede manejar */
@@ -322,6 +334,42 @@ fd_selector selector_new(const size_t initial_elements)
     if (ret != NULL)
     {
         memset(ret, 0x00, size);
+        ret->epoll_fd = -1;
+        ret->event_fd = -1;
+
+        ret->epoll_fd = epoll_create1(0);
+        if (ret->epoll_fd == -1)
+        {
+            selector_destroy(ret);
+            return NULL;
+        }
+
+        ret->event_fd = eventfd(0, EFD_NONBLOCK);
+        if (ret->event_fd == -1)
+        {
+            selector_destroy(ret);
+            return NULL;
+        }
+
+        size_t ev_cap = initial_elements > 0 ? initial_elements : 8;
+        ret->events = calloc(ev_cap, sizeof(struct epoll_event));
+        if (ret->events == NULL)
+        {
+            selector_destroy(ret);
+            return NULL;
+        }
+        ret->events_capacity = ev_cap;
+
+        struct epoll_event ev = {
+            .events = EPOLLIN,
+            .data = {.fd = ret->event_fd},
+        };
+        if (epoll_ctl(ret->epoll_fd, EPOLL_CTL_ADD, ret->event_fd, &ev) == -1)
+        {
+            selector_destroy(ret);
+            return NULL;
+        }
+
         ret->master_t.tv_sec = conf.select_timeout.tv_sec;
         ret->master_t.tv_nsec = conf.select_timeout.tv_nsec;
         assert(ret->max_fd == 0);
@@ -341,6 +389,11 @@ void selector_destroy(fd_selector s)
     // lean ya que se llama desde los casos fallidos de _new.
     if (s != NULL)
     {
+        if (s->event_fd >= 0)
+        {
+            close(s->event_fd);
+        }
+
         if (s->fds != NULL)
         {
             for (size_t i = 0; i < s->fd_size; i++)
@@ -362,6 +415,18 @@ void selector_destroy(fd_selector s)
             s->fds = NULL;
             s->fd_size = 0;
         }
+
+        if (s->epoll_fd >= 0)
+        {
+            close(s->epoll_fd);
+        }
+
+        if (s->events != NULL)
+        {
+            free(s->events);
+            s->events = NULL;
+        }
+
         free(s);
     }
 }
