@@ -3,10 +3,11 @@ repos:
     hooks:
       - id: clang-format
         name: clang-format auto-fix
-        entry: bash -c 'clang-format -i "$@"; git add "$@"' --
+        entry: clang-format -i
         language: system
         files: \.(c|h)$
         pass_filenames: true
+        require_serial: true
 
       # - id: clang-tidy
       #   name: clang-tidy

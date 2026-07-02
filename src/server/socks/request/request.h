@@ -46,7 +46,7 @@ typedef struct socks_request_parser
     unsigned state;
     uint8_t cmd;
     uint8_t atyp;
-    uint8_t addr_remaining;   /* bytes de IP que faltan (4 o 16) */
+    uint8_t addr_remaining; /* bytes de IP que faltan (4 o 16) */
     uint8_t fqdn_len;
     uint8_t fqdn_remaining;
     char fqdn[SOCKS_REQUEST_FQDN_MAX + 1];
