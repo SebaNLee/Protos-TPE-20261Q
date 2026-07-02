@@ -13,7 +13,6 @@
 #include <stdint.h> // SIZE_MAX
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
-#include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -100,19 +99,6 @@ struct fdselector
     struct item *fds;
     size_t fd_size; // cantidad de elementos posibles de fds
 
-    /** fd maximo para usar en select() */
-    int max_fd; // max(.fds[].fd)
-
-    /** descriptores prototipicos ser usados en select */
-    fd_set master_r, master_w;
-    /** para ser usado en el select() (recordar que select cambia el valor) */
-    fd_set slave_r, slave_w;
-
-    /** timeout prototipico para usar en select() */
-    struct timespec master_t;
-    /** tambien select() puede cambiar el valor */
-    struct timespec slave_t;
-
     /** protege el acceso a resolutions jobs */
     pthread_mutex_t resolution_mutex;
     /**
@@ -132,10 +118,8 @@ struct fdselector
     size_t events_capacity;
 };
 
-/** cantidad máxima de file descriptors que la plataforma puede manejar */
-#define ITEMS_MAX_SIZE FD_SETSIZE
-
-// en esta implementación el máximo está dado por el límite natural de select(2).
+/** cantidad máxima de file descriptors, ahora arbitrario */
+#define ITEMS_MAX_SIZE 65536
 
 /**
  * determina el tamaño a crecer, generando algo de slack para no tener
@@ -176,45 +160,6 @@ static void items_init(fd_selector s, const size_t last)
     for (size_t i = last; i < s->fd_size; i++)
     {
         item_init(s->fds + i);
-    }
-}
-
-/**
- * calcula el fd maximo para ser utilizado en select()
- */
-static int items_max_fd(fd_selector s)
-{
-    int max = 0;
-    for (int i = 0; i <= s->max_fd; i++)
-    {
-        struct item *item = s->fds + i;
-        if (ITEM_USED(item))
-        {
-            if (item->fd > max)
-            {
-                max = item->fd;
-            }
-        }
-    }
-    return max;
-}
-
-static void items_update_fdset_for_fd(fd_selector s, const struct item *item)
-{
-    FD_CLR(item->fd, &s->master_r);
-    FD_CLR(item->fd, &s->master_w);
-
-    if (ITEM_USED(item))
-    {
-        if (item->interest & OP_READ)
-        {
-            FD_SET(item->fd, &(s->master_r));
-        }
-
-        if (item->interest & OP_WRITE)
-        {
-            FD_SET(item->fd, &(s->master_w));
-        }
     }
 }
 
@@ -340,9 +285,6 @@ fd_selector selector_new(const size_t initial_elements)
             return NULL;
         }
 
-        ret->master_t.tv_sec = conf.select_timeout.tv_sec;
-        ret->master_t.tv_nsec = conf.select_timeout.tv_nsec;
-        assert(ret->max_fd == 0);
         ret->resolution_jobs = 0;
         pthread_mutex_init(&ret->resolution_mutex, 0);
         if (0 != ensure_capacity(ret, initial_elements))
@@ -441,13 +383,6 @@ selector_status selector_register(fd_selector s,
         item->interest = interest;
         item->data = data;
 
-        // actualizo colaterales
-        if (fd > s->max_fd)
-        {
-            s->max_fd = fd;
-        }
-        items_update_fdset_for_fd(s, item);
-
         struct epoll_event ev = interest_to_epoll(fd, interest);
         epoll_ctl(s->epoll_fd, EPOLL_CTL_ADD, fd, &ev);
     }
@@ -485,13 +420,11 @@ selector_status selector_unregister_fd(fd_selector s,
     }
 
     item->interest = OP_NOOP;
-    items_update_fdset_for_fd(s, item);
 
     epoll_ctl(s->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
 
     memset(item, 0x00, sizeof(*item));
     item_init(item);
-    s->max_fd = items_max_fd(s);
 
 finally:
     return ret;
@@ -513,7 +446,6 @@ selector_status selector_set_interest(fd_selector s, int fd, fd_interest i)
         goto finally;
     }
     item->interest = i;
-    items_update_fdset_for_fd(s, item);
 
     struct epoll_event ev = interest_to_epoll(fd, i);
     epoll_ctl(s->epoll_fd, EPOLL_CTL_MOD, fd, &ev);
@@ -659,13 +591,13 @@ selector_status selector_select(fd_selector s)
     selector_status ret = SELECTOR_SUCCESS;
 
     int timeout_ms;
-    if (s->master_t.tv_sec == 0 && s->master_t.tv_nsec == 0)
+    if (conf.select_timeout.tv_sec == 0 && conf.select_timeout.tv_nsec == 0)
     {
         timeout_ms = 0;
     }
     else
     {
-        timeout_ms = (int)(s->master_t.tv_sec * 1000 + s->master_t.tv_nsec / 1000000);
+        timeout_ms = (int)(conf.select_timeout.tv_sec * 1000 + conf.select_timeout.tv_nsec / 1000000);
     }
 
     int fds = epoll_wait(s->epoll_fd, s->events, (int)s->events_capacity,
@@ -677,7 +609,7 @@ selector_status selector_select(fd_selector s)
         case EINTR:
             break;
         case EBADF:
-            for (int i = 0; i <= s->max_fd; i++)
+            for (size_t i = 0; i < s->fd_size; i++)
             {
                 struct item *item = s->fds + i;
                 if (ITEM_USED(item) && -1 == fcntl(item->fd, F_GETFD, 0))
