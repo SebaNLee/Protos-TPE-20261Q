@@ -700,33 +700,33 @@ selector_status selector_select(fd_selector s)
 {
     selector_status ret = SELECTOR_SUCCESS;
 
-    memcpy(&s->slave_r, &s->master_r, sizeof(s->slave_r));
-    memcpy(&s->slave_w, &s->master_w, sizeof(s->slave_w));
-    memcpy(&s->slave_t, &s->master_t, sizeof(s->slave_t));
-
     s->selector_thread = pthread_self();
 
-    int fds = pselect(s->max_fd + 1, &s->slave_r, &s->slave_w, 0, &s->slave_t,
-                      &emptyset);
+    int timeout_ms;
+    if (s->master_t.tv_sec == 0 && s->master_t.tv_nsec == 0)
+    {
+        timeout_ms = 0;
+    }
+    else
+    {
+        timeout_ms = (int)(s->master_t.tv_sec * 1000 + s->master_t.tv_nsec / 1000000);
+    }
+
+    int fds = epoll_wait(s->epoll_fd, s->events, (int)s->events_capacity,
+                         timeout_ms);
     if (-1 == fds)
     {
         switch (errno)
         {
-        case EAGAIN:
         case EINTR:
-            // si una señal nos interrumpio. ok!
             break;
         case EBADF:
-            // ayuda a encontrar casos donde se cierran los fd pero no
-            // se desregistraron
-            for (int i = 0; i < s->max_fd; i++)
+            for (int i = 0; i <= s->max_fd; i++)
             {
-                if (FD_ISSET(i, &s->master_r) || FD_ISSET(i, &s->master_w))
+                struct item *item = s->fds + i;
+                if (ITEM_USED(item) && -1 == fcntl(item->fd, F_GETFD, 0))
                 {
-                    if (-1 == fcntl(i, F_GETFD, 0))
-                    {
-                        fprintf(stderr, "Bad descriptor detected: %d\n", i);
-                    }
+                    fprintf(stderr, "Bad descriptor detected: %d\n", item->fd);
                 }
             }
             ret = SELECTOR_IO;
@@ -738,7 +738,7 @@ selector_status selector_select(fd_selector s)
     }
     else
     {
-        handle_iteration(s);
+        handle_iteration(s, fds);
     }
     if (ret == SELECTOR_SUCCESS)
     {
