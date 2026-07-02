@@ -14,7 +14,6 @@
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <sys/select.h>
-#include <sys/signal.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -50,57 +49,16 @@ const char *selector_error(const selector_status status)
     return msg;
 }
 
-static void wake_handler(const int signal)
-{
-    // nada que hacer. está solo para interrumpir el select
-}
-
-// señal a usar para las notificaciones de resolución
 struct selector_init conf;
-static sigset_t emptyset, blockset;
 
 selector_status selector_init(const struct selector_init *c)
 {
     memcpy(&conf, c, sizeof(conf));
-
-    // inicializamos el sistema de comunicación entre threads y el selector
-    // principal. La técnica se encuentra descripta en
-    // "The new pselect() system call" <https://lwn.net/Articles/176911/>
-    //  March 24, 2006
-    selector_status ret = SELECTOR_SUCCESS;
-    struct sigaction act = {
-        .sa_handler = wake_handler,
-    };
-
-    // 0. calculamos mascara para evitar que se interrumpa antes de llegar al
-    //    select
-    sigemptyset(&blockset);
-    sigaddset(&blockset, conf.signal);
-    if (-1 == sigprocmask(SIG_BLOCK, &blockset, NULL))
-    {
-        ret = SELECTOR_IO;
-        goto finally;
-    }
-
-    // 1. Registramos una función que atenderá la señal de interrupción
-    //    del selector.
-    //    Esta interrupción es útil en entornos multi-hilos.
-
-    if (sigaction(conf.signal, &act, 0))
-    {
-        ret = SELECTOR_IO;
-        goto finally;
-    }
-    sigemptyset(&emptyset);
-
-finally:
-    return ret;
+    return SELECTOR_SUCCESS;
 }
 
 selector_status selector_close(void)
 {
-    // Nada para liberar.
-    // TODO(juan): podriamos reestablecer el handler de la señal.
     return SELECTOR_SUCCESS;
 }
 
@@ -155,8 +113,6 @@ struct fdselector
     /** tambien select() puede cambiar el valor */
     struct timespec slave_t;
 
-    // notificaciónes entre blocking jobs y el selector
-    volatile pthread_t selector_thread;
     /** protege el acceso a resolutions jobs */
     pthread_mutex_t resolution_mutex;
     /**
@@ -598,7 +554,8 @@ static void handle_iteration(fd_selector s, const int n_ready)
 
         if (fd == s->event_fd)
         {
-            // TODO event
+            uint64_t val;
+            read(s->event_fd, &val, sizeof(val));
             continue;
         }
 
@@ -689,8 +646,9 @@ selector_status selector_notify_block(fd_selector s,
     s->resolution_jobs = job;
     pthread_mutex_unlock(&s->resolution_mutex);
 
-    // notificamos al hilo principal
-    pthread_kill(s->selector_thread, conf.signal);
+    // notificamos al hilo principal (ahora con eventfd en vez de signal)
+    const uint64_t val = 1;
+    write(s->event_fd, &val, sizeof(val));
 
 finally:
     return ret;
@@ -699,8 +657,6 @@ finally:
 selector_status selector_select(fd_selector s)
 {
     selector_status ret = SELECTOR_SUCCESS;
-
-    s->selector_thread = pthread_self();
 
     int timeout_ms;
     if (s->master_t.tv_sec == 0 && s->master_t.tv_nsec == 0)
