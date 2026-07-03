@@ -4,7 +4,7 @@
  * Cliente:  VER | NMETHODS | METHODS[1..NMETHODS]
  * Servidor: VER | METHOD   (0x02 = username/password, 0xFF = rechazo)
  */
-#include "socks5_greeting.h"
+#include "greeting.h"
 
 #define SOCKS_VERSION 0x05
 #define SOCKS_METHOD_USERPASS 0x02

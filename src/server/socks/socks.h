@@ -6,13 +6,14 @@
 
 #include <netinet/in.h>
 
-#include "../buffer.h"
-#include "../selector.h"
-#include "../stm.h"
+#include "shared/buffer.h"
+#include "shared/selector.h"
+#include "shared/stm.h"
 
-#include "socks5_greeting.h"
-#include "socks5_auth.h"
-#include "socks5_request.h"
+#include "server/monitor/store.h"
+#include "server/socks/auth/auth.h"
+#include "server/socks/greeting/greeting.h"
+#include "server/socks/request/request.h"
 
 #define SOCKS_BUFFER_SIZE 4096
 
@@ -79,6 +80,11 @@ struct socks_session
     /* Dirección de destino parseada del CONNECT (IPv4/IPv6) o resuelta por DNS */
     struct sockaddr_storage dest_addr;
     socklen_t dest_addr_len;
+
+    /* Integración con store: métricas, access log, max_connections */
+    store_session_id store_id;
+    time_t last_activity; /* para CONFIG timeout (idle) */
+    bool dest_recorded;
 };
 
 /* Estado global del servidor proxy (equivalente a echo_server). */
@@ -88,12 +94,14 @@ struct socks_server
     int listen_fd;
     uint16_t port;
     size_t active_sessions;
-    volatile bool *stop; /* Apunta al flag de shutdown en main.c */
+    volatile bool *stop;         /* Apunta al flag de shutdown en main.c */
+    struct monitor_store *store; /* usuarios + métricas + log compartidos con monitor */
 };
 
 selector_status socks_server_init(fd_selector s,
                                   uint16_t port,
                                   volatile bool *stop,
+                                  struct monitor_store *store,
                                   struct socks_server **out);
 
 /* Calcula OP_READ/OP_WRITE del client_fd según espacio en c2o y datos en o2c */

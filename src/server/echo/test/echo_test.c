@@ -12,7 +12,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include "server/echo.h"
+#include "echo.h"
 
 static int connect_to_server(uint16_t port)
 {

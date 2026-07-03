@@ -28,6 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
 
 /* ==========================================================================
@@ -50,6 +51,27 @@ static bool socks_send_connect_reply(struct socks_session *session, uint8_t rep)
 static void socks_fail_request(struct selector_key *key, uint8_t rep);
 static void socks_session_close_from_origin(struct socks_session *session);
 static void socks_session_destroy_origin(struct socks_session *session);
+
+static void socks_session_record_dest(struct socks_session *session);
+static void socks_check_idle_timeout(struct socks_session *session,
+                                     struct selector_key *key);
+static void socks_auth_store_user(struct socks_session *session);
+
+/* ==========================================================================
+ * Integración con monitor_store
+ *
+ * socks.c avisa al store en cada etapa de la sesión SOCKS para que los
+ * comandos del puerto 8080 reflejen la realidad del proxy:
+ *
+ *   accept()           → store_session_begin()      (CONNECTIONS, STATS)
+ *   auth OK            → store_session_set_user()   (ACCESS_LOG, USERS)
+ *   pedido CONNECT     → store_session_set_phase()  (CONNECTIONS)
+ *   CONNECT exitoso    → store_session_set_dest()   (ACCESS_LOG)
+ *   relay c2o/o2c      → store_session_add_bytes()  (STATS, ACCESS_LOG)
+ *   cierre / fallo     → store_session_end() / mark_failed()
+ *
+ * Ver también el diagrama de ciclo de vida en store.h.
+ * ========================================================================== */
 
 static bool socks_o2c_append(struct socks_session *session,
                              const uint8_t *data,
@@ -174,9 +196,12 @@ static unsigned socks_on_read_auth(struct selector_key *key)
             return SOCKS_ST_DONE;
         }
 
-        if (socks_auth_validate(&session->auth))
+        if (socks_auth_validate(&session->auth, session->srv->store))
         {
-            /* Credenciales correctas: el browser puede mandar el CONNECT. */
+            socks_auth_store_user(session);
+            store_session_set_phase(session->srv->store,
+                                    session->store_id,
+                                    STORE_SESSION_AUTH);
             static const uint8_t ok[] = {0x01, 0x00};
 
             if (!socks_o2c_append(session, ok, sizeof(ok)))
@@ -263,6 +288,13 @@ static bool socks_send_connect_reply(struct socks_session *session, uint8_t rep)
 static void socks_fail_request(struct selector_key *key, uint8_t rep)
 {
     struct socks_session *session = key->data;
+
+    if (session != NULL && session->srv != NULL && session->srv->store != NULL &&
+        session->store_id != STORE_SESSION_INVALID)
+    {
+        store_session_mark_failed(session->srv->store, session->store_id);
+        session->store_id = STORE_SESSION_INVALID;
+    }
 
     if (!socks_send_connect_reply(session, rep))
     {
@@ -494,11 +526,17 @@ static unsigned socks_on_read_request(struct selector_key *key)
 
         if (status == SOCKS_REQUEST_PARSED_FQDN)
         {
+            store_session_set_phase(session->srv->store,
+                                    session->store_id,
+                                    STORE_SESSION_CONNECTING);
             return socks_start_dns_resolve(key);
         }
 
         if (status == SOCKS_REQUEST_PARSED_ADDR)
         {
+            store_session_set_phase(session->srv->store,
+                                    session->store_id,
+                                    STORE_SESSION_CONNECTING);
             session->dest_addr_len =
                 socks_request_dest_addr_len(&session->request);
             memcpy(&session->dest_addr,
@@ -586,6 +624,8 @@ static void socks_origin_connect_complete(struct selector_key *key)
         return;
     }
 
+    socks_session_record_dest(session);
+
     session->stm.current = session->stm.states + SOCKS_ST_RELAY;
     selector_set_interest(key->s, session->origin_fd, socks_origin_interest(session));
     selector_set_interest(key->s, session->client_fd, socks_client_interest(session));
@@ -644,6 +684,14 @@ static void socks_origin_read(struct selector_key *key)
     }
 
     buffer_write_adv(&session->o2c, n);
+    if (session->srv != NULL && session->srv->store != NULL &&
+        session->store_id != STORE_SESSION_INVALID)
+    {
+        store_session_add_bytes(session->srv->store,
+                                session->store_id,
+                                0,
+                                (uint64_t)n);
+    }
     selector_set_interest(key->s, session->client_fd, socks_client_interest(session));
     selector_set_interest_key(key, socks_origin_interest(session));
 }
@@ -685,6 +733,14 @@ static void socks_origin_write(struct selector_key *key)
 
     buffer_read_adv(&session->c2o, n);
     buffer_compact(&session->c2o);
+    if (session->srv != NULL && session->srv->store != NULL &&
+        session->store_id != STORE_SESSION_INVALID)
+    {
+        store_session_add_bytes(session->srv->store,
+                                session->store_id,
+                                (uint64_t)n,
+                                0);
+    }
     selector_set_interest_key(key, socks_origin_interest(session));
     selector_set_interest(key->s, session->client_fd, socks_client_interest(session));
 }
@@ -766,6 +822,109 @@ static void socks_session_stm_init(struct socks_session *session)
     stm_init(&session->stm);
 }
 
+/*
+ * Tras auth SOCKS exitosa: copia el username parseado al store.
+ * Se llama desde socks_on_read_auth() antes de pasar a REQUEST.
+ */
+static void socks_auth_store_user(struct socks_session *session)
+{
+    char username[SOCKS_AUTH_MAX_LEN + 1];
+    const size_t len = socks_auth_username_len(&session->auth);
+
+    if (session->srv == NULL || session->srv->store == NULL ||
+        session->store_id == STORE_SESSION_INVALID || len == 0 ||
+        len > SOCKS_AUTH_MAX_LEN)
+    {
+        return;
+    }
+
+    memcpy(username, socks_auth_username(&session->auth), len);
+    username[len] = '\0';
+    store_session_set_user(session->srv->store, session->store_id, username);
+}
+
+/*
+ * Tras CONNECT exitoso al origen: registra host:port en el store
+ * y crea una entrada CONNECTED en el access log.
+ */
+static void socks_session_record_dest(struct socks_session *session)
+{
+    char host[STORE_MAX_DEST_HOST + 1];
+    const char *fqdn = socks_request_fqdn(&session->request);
+
+    if (session->dest_recorded || session->srv == NULL ||
+        session->srv->store == NULL ||
+        session->store_id == STORE_SESSION_INVALID)
+    {
+        return;
+    }
+
+    if (fqdn != NULL && fqdn[0] != '\0')
+    {
+        strncpy(host, fqdn, STORE_MAX_DEST_HOST);
+    }
+    else if (session->dest_addr_len > 0)
+    {
+        const void *addr = NULL;
+
+        if (session->dest_addr.ss_family == AF_INET)
+        {
+            addr = &((struct sockaddr_in *)&session->dest_addr)->sin_addr;
+        }
+        else if (session->dest_addr.ss_family == AF_INET6)
+        {
+            addr = &((struct sockaddr_in6 *)&session->dest_addr)->sin6_addr;
+        }
+
+        if (addr == NULL ||
+            inet_ntop(session->dest_addr.ss_family,
+                      addr,
+                      host,
+                      sizeof(host)) == NULL)
+        {
+            strncpy(host, "unknown", sizeof(host) - 1);
+        }
+    }
+    else
+    {
+        strncpy(host, "unknown", sizeof(host) - 1);
+    }
+
+    host[STORE_MAX_DEST_HOST] = '\0';
+    store_session_set_dest(session->srv->store,
+                           session->store_id,
+                           host,
+                           socks_request_dest_port(&session->request));
+    session->dest_recorded = true;
+}
+
+/*
+ * CONFIG timeout: si la sesión supera N segundos sin tráfico, la cerramos.
+ * timeout=0 (default) desactiva esta comprobación.
+ */
+static void socks_check_idle_timeout(struct socks_session *session,
+                                     struct selector_key *key)
+{
+    uint32_t timeout = 0;
+
+    if (session == NULL || session->srv == NULL ||
+        session->srv->store == NULL || session->store_id == STORE_SESSION_INVALID)
+    {
+        return;
+    }
+
+    if (!store_config_get(session->srv->store, STORE_CFG_TIMEOUT, &timeout) ||
+        timeout == 0)
+    {
+        return;
+    }
+
+    if (time(NULL) - session->last_activity >= (time_t)timeout)
+    {
+        socks_unregister_session(key);
+    }
+}
+
 /* Inicializa una sesión recién aceptada. origin_fd queda en -1 (sin destino). */
 static void socks_session_init(struct socks_session *session,
                                struct socks_server *srv,
@@ -787,6 +946,9 @@ static void socks_session_init(struct socks_session *session,
     session->dns_gai_rc = 0;
     session->dns_resolving = false;
     session->close_after_flush = false;
+    session->store_id = STORE_SESSION_INVALID;
+    session->last_activity = time(NULL);
+    session->dest_recorded = false;
 
     socks_session_stm_init(session);
 }
@@ -858,6 +1020,13 @@ static void socks_unregister_session(struct selector_key *key)
 static void socks_client_read(struct selector_key *key)
 {
     struct socks_session *session = key->data;
+
+    socks_check_idle_timeout(session, key);
+    if (session == NULL)
+    {
+        return;
+    }
+
     size_t available = 0;
     uint8_t *ptr = buffer_write_ptr(&session->c2o, &available);
 
@@ -885,6 +1054,7 @@ static void socks_client_read(struct selector_key *key)
     }
 
     buffer_write_adv(&session->c2o, n);
+    session->last_activity = time(NULL);
 
     if (stm_state(&session->stm) == SOCKS_ST_RELAY)
     {
@@ -978,6 +1148,13 @@ static void socks_client_close(struct selector_key *key)
 
     if (session != NULL)
     {
+        if (session->srv != NULL && session->srv->store != NULL &&
+            session->store_id != STORE_SESSION_INVALID)
+        {
+            store_session_end(session->srv->store, session->store_id);
+            session->store_id = STORE_SESSION_INVALID;
+        }
+
         stm_handler_close(&session->stm, key);
         socks_session_destroy_origin(session);
         socks_free_dns(session);
@@ -1026,14 +1203,31 @@ static void socks_passive_read(struct selector_key *key)
             continue;
         }
 
+        /* CONFIG max_connections: si el store no tiene cupo, rechazamos el accept */
+        store_session_id store_id = STORE_SESSION_INVALID;
+        if (srv->store != NULL)
+        {
+            store_id = store_session_begin(srv->store);
+            if (store_id == STORE_SESSION_INVALID)
+            {
+                close(client_fd);
+                continue;
+            }
+        }
+
         struct socks_session *session = calloc(1, sizeof(*session));
         if (session == NULL)
         {
+            if (srv->store != NULL && store_id != STORE_SESSION_INVALID)
+            {
+                store_session_end(srv->store, store_id);
+            }
             close(client_fd);
             continue;
         }
 
         socks_session_init(session, srv, client_fd);
+        session->store_id = store_id;
 
         if (selector_register(key->s,
                               client_fd,
@@ -1041,6 +1235,10 @@ static void socks_passive_read(struct selector_key *key)
                               OP_READ,
                               session) != SELECTOR_SUCCESS)
         {
+            if (srv->store != NULL && store_id != STORE_SESSION_INVALID)
+            {
+                store_session_end(srv->store, store_id);
+            }
             free(session);
             close(client_fd);
             continue;
@@ -1135,6 +1333,7 @@ static int create_listen_socket(uint16_t port, uint16_t *bound_port)
 selector_status socks_server_init(fd_selector s,
                                   uint16_t port,
                                   volatile bool *stop,
+                                  struct monitor_store *store,
                                   struct socks_server **out)
 {
     if (s == NULL || out == NULL)
@@ -1159,6 +1358,7 @@ selector_status socks_server_init(fd_selector s,
     srv->port = bound_port;
     srv->selector = s;
     srv->stop = stop;
+    srv->store = store;
 
     const selector_status status =
         selector_register(s,

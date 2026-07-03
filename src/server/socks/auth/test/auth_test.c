@@ -2,7 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "server/socks5_auth.h"
+#include "auth.h"
+
+#include "server/monitor/store.h"
 
 static socks_auth_status feed_bytes(socks_auth_parser *parser,
                                     const uint8_t *bytes,
@@ -24,6 +26,9 @@ static socks_auth_status feed_bytes(socks_auth_parser *parser,
 
 START_TEST(test_auth_parse_admin)
 {
+    struct monitor_store *store = store_create();
+    ck_assert_ptr_nonnull(store);
+
     socks_auth_parser parser;
     socks_auth_parser_init(&parser);
 
@@ -35,12 +40,17 @@ START_TEST(test_auth_parse_admin)
     ck_assert_uint_eq(5, socks_auth_password_len(&parser));
     ck_assert_mem_eq("admin", socks_auth_username(&parser), 5);
     ck_assert_mem_eq("admin", socks_auth_password(&parser), 5);
-    ck_assert(socks_auth_validate(&parser));
+    ck_assert(socks_auth_validate(&parser, store));
+
+    store_destroy(store);
 }
 END_TEST
 
 START_TEST(test_auth_validate_wrong_password)
 {
+    struct monitor_store *store = store_create();
+    ck_assert_ptr_nonnull(store);
+
     socks_auth_parser parser;
     socks_auth_parser_init(&parser);
 
@@ -48,7 +58,9 @@ START_TEST(test_auth_validate_wrong_password)
         0x01, 0x05, 'a', 'd', 'm', 'i', 'n', 0x04, 'x', 'x', 'x', 'x'};
 
     ck_assert_int_eq(SOCKS_AUTH_PARSED, feed_bytes(&parser, msg, sizeof(msg)));
-    ck_assert(!socks_auth_validate(&parser));
+    ck_assert(!socks_auth_validate(&parser, store));
+
+    store_destroy(store);
 }
 END_TEST
 

@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "server/socks5_request.h"
+#include "request.h"
 
 static socks_request_status feed_all(socks_request_parser *parser,
                                      const uint8_t *bytes,
@@ -29,7 +29,7 @@ START_TEST(test_request_ipv4)
     socks_request_parser parser;
     socks_request_parser_init(&parser);
 
-  /* CONNECT 203.0.113.1:443 */
+    /* CONNECT 203.0.113.1:443 */
     const uint8_t msg[] = {
         0x05, 0x01, 0x00, 0x01, 203, 0, 113, 1, 0x01, 0xBB};
 

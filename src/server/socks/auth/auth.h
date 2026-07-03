@@ -33,10 +33,10 @@ typedef enum
 typedef struct socks_auth_parser
 {
     unsigned state;
-    uint8_t uname_len;          /* Longitud total del usuario (ULEN) */
-    uint8_t passwd_len;         /* Longitud total de la contraseña (PLEN) */
-    uint8_t uname_remaining;    /* Bytes de usuario que faltan leer */
-    uint8_t passwd_remaining;   /* Bytes de contraseña que faltan leer */
+    uint8_t uname_len;        /* Longitud total del usuario (ULEN) */
+    uint8_t passwd_len;       /* Longitud total de la contraseña (PLEN) */
+    uint8_t uname_remaining;  /* Bytes de usuario que faltan leer */
+    uint8_t passwd_remaining; /* Bytes de contraseña que faltan leer */
     uint8_t uname[SOCKS_AUTH_MAX_LEN];
     uint8_t passwd[SOCKS_AUTH_MAX_LEN];
 } socks_auth_parser;
@@ -54,11 +54,13 @@ const uint8_t *socks_auth_username(const socks_auth_parser *parser);
 
 const uint8_t *socks_auth_password(const socks_auth_parser *parser);
 
+struct monitor_store;
+
 /*
- * Compara credenciales parseadas con las válidas del servidor.
- * Por ahora hardcodeado: admin / admin (se reemplazará con el protocolo
- * de monitoreo del TP para agregar usuarios en runtime).
+ * Compara credenciales ya parseadas contra monitor_store.
+ * Llamar desde socks.c cuando feed() devuelve PARSED.
  */
-bool socks_auth_validate(const socks_auth_parser *parser);
+bool socks_auth_validate(const socks_auth_parser *parser,
+                         struct monitor_store *store);
 
 #endif
