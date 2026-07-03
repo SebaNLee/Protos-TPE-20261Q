@@ -36,22 +36,25 @@ make all
 
 Using docker. 
 
-Image build:
 
 ```bash
+# Build image
 docker compose build
-```
 
-Build and run tests:
+# Build all (server, client, tests)
+docker compose run --rm dev make all
 
-```bash
+# Build and run all tests
 docker compose run --rm dev make clean test check
-```
 
-Run a single test:
+# Run a single test
+docker compose run --rm dev ./build/<test>
 
-```bash
-docker compose run --rm dev ./build/selector_test
+# Run server (check port mapping on docker-compose.yaml)
+docker compose run --rm --service-ports dev ./bin/server
+
+# Run client
+docker compose run --rm dev ./bin/client
 ```
 
 ## Makefile targets
@@ -74,3 +77,9 @@ There is a pre-commit hook that uses Clang when committing for code formatting. 
 ```
 pre-commit install
 ```
+
+### socks5 usage example (current impl)
+
+`
+curl --socks5 admin:admin@localhost:1080 http://google.com
+`

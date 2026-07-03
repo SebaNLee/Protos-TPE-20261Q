@@ -28,8 +28,8 @@
  * la iteración normal. Los handlers no se tienen que preocupar por la
  * concurrencia.
  *
- * Dicha señalización se realiza mediante señales, y es por eso que al
- * iniciar la librería `selector_init' se debe configurar una señal a utilizar.
+ * Ahora con epoll la señalización es con eventfd en vez de signals y,
+ * en vez de especificar la señal a usar, ahora va con timeout.
  *
  * Todos métodos retornan su estado (éxito / error) de forma uniforme.
  * Puede utilizar `selector_error' para obtener una representación human
@@ -68,7 +68,7 @@ const char *selector_error(const selector_status status);
 /** opciones de inicialización del selector */
 struct selector_init
 {
-    /** señal a utilizar para notificaciones internas */
+    /** (deprecated, ahora es con eventfd) señal a utilizar para notificaciones internas */
     const int signal;
 
     /** tiempo máximo de bloqueo durante `selector_iteratate' */
