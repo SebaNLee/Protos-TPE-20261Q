@@ -1,7 +1,7 @@
 #include <check.h>
 #include <stdlib.h>
 
-#include "server/socks5_greeting.h"
+#include "greeting.h"
 
 START_TEST(test_greeting_accept_userpass)
 {
