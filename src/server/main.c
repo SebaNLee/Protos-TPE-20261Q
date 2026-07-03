@@ -25,6 +25,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "shared/flags.h"
+
 static volatile sig_atomic_t shutdown_requested = 0;
 static volatile sig_atomic_t force_quit = 0;
 
@@ -59,50 +61,6 @@ static void usage(const char *program)
     fprintf(stderr, "  -m  Monitor port (default 8080)\n");
 }
 
-static int parse_args(int argc,
-                      char **argv,
-                      uint16_t *socks_port,
-                      uint16_t *monitor_port)
-{
-    int opt;
-
-    *socks_port = 1080;
-    *monitor_port = 8080;
-
-    while ((opt = getopt(argc, argv, "p:m:h")) != -1)
-    {
-        switch (opt)
-        {
-        case 'p':
-        case 'm':
-        {
-            const long value = strtol(optarg, NULL, 10);
-            if (value <= 0 || value > 65535)
-            {
-                return -1;
-            }
-            if (opt == 'p')
-            {
-                *socks_port = (uint16_t)value;
-            }
-            else
-            {
-                *monitor_port = (uint16_t)value;
-            }
-            break;
-        }
-        case 'h':
-            usage(argv[0]);
-            return 1;
-        default:
-            usage(argv[0]);
-            return -1;
-        }
-    }
-
-    return 0;
-}
-
 static bool servers_is_empty(struct socks_server *socks,
                              struct monitor_server *monitor)
 {
@@ -113,11 +71,37 @@ int main(int argc, char **argv)
 {
     uint16_t socks_port = 1080;
     uint16_t monitor_port = 8080;
-    const int args_status = parse_args(argc, argv, &socks_port, &monitor_port);
 
-    if (args_status != 0)
+    if (setup_flags(argc, argv, "p:m:h") != 0)
     {
-        return args_status < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
+        usage(argv[0]);
+        return EXIT_FAILURE;
+    }
+
+    if (has_flag('h'))
+    {
+        usage(argv[0]);
+        return EXIT_SUCCESS;
+    }
+    if (has_flag('p'))
+    {
+        const long value = get_flag_long('p');
+        if (value <= 0 || value > 65535)
+        {
+            usage(argv[0]);
+            return EXIT_FAILURE;
+        }
+        socks_port = (uint16_t)value;
+    }
+    if (has_flag('m'))
+    {
+        const long value = get_flag_long('m');
+        if (value <= 0 || value > 65535)
+        {
+            usage(argv[0]);
+            return EXIT_FAILURE;
+        }
+        monitor_port = (uint16_t)value;
     }
 
     install_signal_handlers();

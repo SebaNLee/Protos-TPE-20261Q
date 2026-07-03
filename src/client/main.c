@@ -8,6 +8,8 @@
 
 #include <sys/socket.h>
 
+#include "shared/flags.h"
+
 /*
  * client/main.c — CLI de monitoreo del proxy.
  *
@@ -323,36 +325,35 @@ int main(int argc, char **argv)
     uint16_t port = 8080;
     const char *user = "admin";
     const char *pass = "admin";
-    int opt;
 
-    while ((opt = getopt(argc, argv, "p:u:w:h")) != -1)
+    if (setup_flags(argc, argv, "p:u:w:h") != 0)
     {
-        switch (opt)
+        usage(argv[0]);
+        return EXIT_FAILURE;
+    }
+
+    if (has_flag('h'))
+    {
+        usage(argv[0]);
+        return EXIT_SUCCESS;
+    }
+    if (has_flag('p'))
+    {
+        const long value = get_flag_long('p');
+        if (value <= 0 || value > 65535)
         {
-        case 'p':
-        {
-            const long value = strtol(optarg, NULL, 10);
-            if (value <= 0 || value > 65535)
-            {
-                usage(argv[0]);
-                return EXIT_FAILURE;
-            }
-            port = (uint16_t)value;
-            break;
-        }
-        case 'u':
-            user = optarg;
-            break;
-        case 'w':
-            pass = optarg;
-            break;
-        case 'h':
-            usage(argv[0]);
-            return EXIT_SUCCESS;
-        default:
             usage(argv[0]);
             return EXIT_FAILURE;
         }
+        port = (uint16_t)value;
+    }
+    if (has_flag('u'))
+    {
+        user = get_flag_str('u');
+    }
+    if (has_flag('w'))
+    {
+        pass = get_flag_str('w');
     }
 
     if (optind >= argc)
