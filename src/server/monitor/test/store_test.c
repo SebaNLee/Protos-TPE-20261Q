@@ -12,11 +12,11 @@
  * métricas, access log circular y filtros.
  */
 
-START_TEST(test_create_has_admin)
+START_TEST(test_create_has_no_default_users)
 {
     struct monitor_store *store = store_create();
     ck_assert_ptr_nonnull(store);
-    ck_assert_int_eq(STORE_AUTH_OK, store_admin_authenticate(store, "admin", "admin"));
+    ck_assert(!store_user_exists(store, "admin"));
     store_destroy(store);
 }
 END_TEST
@@ -40,6 +40,7 @@ END_TEST
 START_TEST(test_socks_validate_ok)
 {
     struct monitor_store *store = store_create();
+    ck_assert_int_eq(STORE_USER_OK, store_user_add(store, "admin", "admin", true));
     ck_assert(store_user_validate(store, "admin", "admin"));
     store_destroy(store);
 }
@@ -56,6 +57,7 @@ END_TEST
 START_TEST(test_admin_auth_ok)
 {
     struct monitor_store *store = store_create();
+    ck_assert_int_eq(STORE_USER_OK, store_user_add(store, "admin", "admin", true));
     ck_assert_int_eq(STORE_AUTH_OK, store_admin_authenticate(store, "admin", "admin"));
     store_destroy(store);
 }
@@ -135,6 +137,7 @@ END_TEST
 START_TEST(test_del_last_admin)
 {
     struct monitor_store *store = store_create();
+    ck_assert_int_eq(STORE_USER_OK, store_user_add(store, "admin", "admin", true));
     ck_assert_int_eq(STORE_USER_LAST_ADMIN, store_user_delete(store, "admin"));
     store_destroy(store);
 }
@@ -156,7 +159,7 @@ START_TEST(test_table_full)
     struct monitor_store *store = store_create();
     char name[32];
 
-    for (int i = 0; i < 255; i++)
+    for (int i = 0; i < STORE_MAX_USERS; i++)
     {
         snprintf(name, sizeof(name), "u%d", i);
         ck_assert_int_eq(STORE_USER_OK, store_user_add(store, name, "p", false));
@@ -476,7 +479,7 @@ Suite *monitor_store_suite(void)
     Suite *s = suite_create("monitor_store");
 
     TCase *tc = tcase_create("store");
-    tcase_add_test(tc, test_create_has_admin);
+    tcase_add_test(tc, test_create_has_no_default_users);
     tcase_add_test(tc, test_config_defaults);
     tcase_add_test(tc, test_socks_validate_ok);
     tcase_add_test(tc, test_socks_validate_bad_pass);
