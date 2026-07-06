@@ -32,29 +32,41 @@ make all
 ./bin/client    
 ```
 
-### macOS
+### Docker usage (macOS)
 
-Using docker. 
-
+Setup:
 
 ```bash
 # Build image
 docker compose build
 
-# Build all (server, client, tests)
-docker compose run --rm dev make all
+# Start dev container in bg and expose ports
+docker compose up -d
 
+# Start dev container
+docker compose exec dev bash
+```
+
+Inside the container:
+
+```bash
 # Build and run all tests
-docker compose run --rm dev make clean test check
+make clean test check
 
 # Run a single test
-docker compose run --rm dev ./build/<test>
+./build/<test>
 
 # Run server (check port mapping on docker-compose.yaml)
-docker compose run --rm --service-ports dev ./bin/server
+./bin/server
 
 # Run client
-docker compose run --rm dev ./bin/client
+./bin/client
+```
+
+When done:
+
+```bash
+docker compose down
 ```
 
 ## Makefile targets

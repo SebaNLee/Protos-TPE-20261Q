@@ -132,6 +132,7 @@ static void run_server_child(int port_pipe_w, int stop_pipe_r)
         selector_close();
         _exit(4);
     }
+    store_user_add(store, "admin", "admin", true);
 
     volatile bool stop = false;
     struct monitor_server *server = NULL;

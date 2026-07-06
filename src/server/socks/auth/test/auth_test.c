@@ -28,6 +28,7 @@ START_TEST(test_auth_parse_admin)
 {
     struct monitor_store *store = store_create();
     ck_assert_ptr_nonnull(store);
+    ck_assert_int_eq(STORE_USER_OK, store_user_add(store, "admin", "admin", true));
 
     socks_auth_parser parser;
     socks_auth_parser_init(&parser);

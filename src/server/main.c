@@ -27,6 +27,8 @@
 
 #include "shared/flags.h"
 
+#define MAX_CLI_USERS 64 // TODO arbitrary
+
 static volatile sig_atomic_t shutdown_requested = 0;
 static volatile sig_atomic_t force_quit = 0;
 
@@ -56,9 +58,10 @@ static void install_signal_handlers(void)
 
 static void usage(const char *program)
 {
-    fprintf(stderr, "Usage: %s [-p socks_port] [-m monitor_port]\n", program);
+    fprintf(stderr, "Usage: %s [-p socks_port] [-m monitor_port] -u <user>:<pass>...\n", program);
     fprintf(stderr, "  -p  SOCKS5 port (default 1080)\n");
     fprintf(stderr, "  -m  Monitor port (default 8080)\n");
+    fprintf(stderr, "  -u  Add initial user:password pair (required, repeatable)\n");
 }
 
 static bool servers_is_empty(struct socks_server *socks,
@@ -72,7 +75,7 @@ int main(int argc, char **argv)
     uint16_t socks_port = 1080;
     uint16_t monitor_port = 8080;
 
-    if (setup_flags(argc, argv, "p:m:h") != 0)
+    if (setup_flags(argc, argv, "p:m:hu:") != 0)
     {
         usage(argv[0]);
         return EXIT_FAILURE;
@@ -104,6 +107,48 @@ int main(int argc, char **argv)
         monitor_port = (uint16_t)value;
     }
 
+    char *cli_users[MAX_CLI_USERS];
+    char *cli_passwords[MAX_CLI_USERS];
+    size_t cli_user_count = 0;
+
+    int count_u = get_flag_count('u');
+
+    for (int i = 0; i < count_u && cli_user_count < MAX_CLI_USERS; i++)
+    {
+        char *curr = get_flag_str_nth('u', i);
+        if (curr == NULL)
+        {
+            continue;
+        }
+
+        char *colon = strchr(curr, ':');
+
+        if (colon == NULL || colon == curr || *(colon + 1) == '\0')
+        {
+            usage(curr);
+            return EXIT_FAILURE;
+        }
+
+        *colon = '\0';
+        cli_users[cli_user_count] = strdup(curr);
+        cli_passwords[cli_user_count] = strdup(colon + 1);
+        *colon = ':';
+
+        if (cli_users[cli_user_count] == NULL || cli_passwords[cli_user_count] == NULL)
+        {
+            usage(curr);
+            return EXIT_FAILURE;
+        }
+
+        cli_user_count++;
+    }
+
+    if (cli_user_count == 0)
+    {
+        usage(argv[0]);
+        return EXIT_FAILURE;
+    }
+
     install_signal_handlers();
 
     const struct selector_init conf = {
@@ -132,6 +177,13 @@ int main(int argc, char **argv)
         selector_destroy(selector);
         selector_close();
         return EXIT_FAILURE;
+    }
+
+    for (size_t i = 0; i < cli_user_count; i++)
+    {
+        store_user_add(store, cli_users[i], cli_passwords[i], true);
+        free(cli_users[i]);
+        free(cli_passwords[i]);
     }
 
     /* *stop=true hace que ambos listen sockets dejen de aceptar (graceful shutdown) */

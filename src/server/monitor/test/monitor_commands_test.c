@@ -14,6 +14,7 @@
 
 static void setup_commands(struct monitor_commands_session *cmds, struct monitor_store *store)
 {
+    store_user_add(store, "admin", "admin", true);
     monitor_commands_session_init(cmds, store);
 }
 

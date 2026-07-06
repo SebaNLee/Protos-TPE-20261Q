@@ -58,3 +58,6 @@ dkms.conf
 /obj/
 /bin/
 /build/
+
+# VSCode intellisense settings
+.vscode/

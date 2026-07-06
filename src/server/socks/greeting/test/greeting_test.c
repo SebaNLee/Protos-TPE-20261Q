@@ -35,14 +35,39 @@ START_TEST(test_greeting_reject_bad_version)
 }
 END_TEST
 
-START_TEST(test_greeting_reject_no_userpass)
+START_TEST(test_greeting_accept_noauth)
 {
     socks_greeting_parser parser;
     socks_greeting_parser_init(&parser);
 
     ck_assert_int_eq(SOCKS_GREETING_NEED_MORE, socks_greeting_parser_feed(&parser, 0x05));
     ck_assert_int_eq(SOCKS_GREETING_NEED_MORE, socks_greeting_parser_feed(&parser, 0x01));
-    ck_assert_int_eq(SOCKS_GREETING_REJECT, socks_greeting_parser_feed(&parser, 0x00));
+    ck_assert_int_eq(SOCKS_GREETING_ACCEPT, socks_greeting_parser_feed(&parser, 0x00));
+    ck_assert_int_eq(0x00, socks_greeting_chosen_method(&parser));
+}
+END_TEST
+
+START_TEST(test_greeting_prefer_userpass_over_noauth)
+{
+    socks_greeting_parser parser;
+    socks_greeting_parser_init(&parser);
+
+    ck_assert_int_eq(SOCKS_GREETING_NEED_MORE, socks_greeting_parser_feed(&parser, 0x05));
+    ck_assert_int_eq(SOCKS_GREETING_NEED_MORE, socks_greeting_parser_feed(&parser, 0x02));
+    ck_assert_int_eq(SOCKS_GREETING_NEED_MORE, socks_greeting_parser_feed(&parser, 0x00));
+    ck_assert_int_eq(SOCKS_GREETING_ACCEPT, socks_greeting_parser_feed(&parser, 0x02));
+    ck_assert_int_eq(0x02, socks_greeting_chosen_method(&parser));
+}
+END_TEST
+
+START_TEST(test_greeting_reject_no_compatible_methods)
+{
+    socks_greeting_parser parser;
+    socks_greeting_parser_init(&parser);
+
+    ck_assert_int_eq(SOCKS_GREETING_NEED_MORE, socks_greeting_parser_feed(&parser, 0x05));
+    ck_assert_int_eq(SOCKS_GREETING_NEED_MORE, socks_greeting_parser_feed(&parser, 0x01));
+    ck_assert_int_eq(SOCKS_GREETING_REJECT, socks_greeting_parser_feed(&parser, 0x01));
 }
 END_TEST
 
@@ -54,7 +79,9 @@ Suite *socks5_greeting_suite(void)
     tcase_add_test(tc, test_greeting_accept_userpass);
     tcase_add_test(tc, test_greeting_accept_userpass_among_many);
     tcase_add_test(tc, test_greeting_reject_bad_version);
-    tcase_add_test(tc, test_greeting_reject_no_userpass);
+    tcase_add_test(tc, test_greeting_accept_noauth);
+    tcase_add_test(tc, test_greeting_prefer_userpass_over_noauth);
+    tcase_add_test(tc, test_greeting_reject_no_compatible_methods);
     suite_add_tcase(s, tc);
 
     return s;
