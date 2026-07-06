@@ -27,8 +27,6 @@
 
 #include "shared/flags.h"
 
-#define MAX_CLI_USERS 64 // TODO arbitrary
-
 static volatile sig_atomic_t shutdown_requested = 0;
 static volatile sig_atomic_t force_quit = 0;
 
@@ -108,83 +106,7 @@ int main(int argc, char **argv)
         monitor_port = (uint16_t)value;
     }
 
-    char *cli_users[MAX_CLI_USERS];
-    char *cli_passwords[MAX_CLI_USERS];
-    size_t cli_user_count = 0;
-    char *admin_users[MAX_CLI_USERS];
-    char *admin_passwords[MAX_CLI_USERS];
-    size_t admin_count = 0;
-
-    int count_u = get_flag_count('u');
-
-    for (int i = 0; i < count_u && cli_user_count < MAX_CLI_USERS; i++)
-    {
-        char *curr = get_flag_str_nth('u', i);
-        if (curr == NULL)
-        {
-            continue;
-        }
-
-        char *colon = strchr(curr, ':');
-
-        if (colon == NULL || colon == curr || *(colon + 1) == '\0')
-        {
-            usage(curr);
-            return EXIT_FAILURE;
-        }
-
-        *colon = '\0';
-        cli_users[cli_user_count] = strdup(curr);
-        cli_passwords[cli_user_count] = strdup(colon + 1);
-        *colon = ':';
-
-        if (cli_users[cli_user_count] == NULL || cli_passwords[cli_user_count] == NULL)
-        {
-            usage(curr);
-            return EXIT_FAILURE;
-        }
-
-        cli_user_count++;
-    }
-
-    int count_a = get_flag_count('a');
-
-    for (int i = 0; i < count_a && admin_count < MAX_CLI_USERS; i++)
-    {
-        char *curr = get_flag_str_nth('a', i);
-        if (curr == NULL)
-        {
-            continue;
-        }
-
-        char *colon = strchr(curr, ':');
-
-        if (colon == NULL || colon == curr || *(colon + 1) == '\0')
-        {
-            usage(curr);
-            return EXIT_FAILURE;
-        }
-
-        *colon = '\0';
-        admin_users[admin_count] = strdup(curr);
-        admin_passwords[admin_count] = strdup(colon + 1);
-        *colon = ':';
-
-        if (admin_users[admin_count] == NULL || admin_passwords[admin_count] == NULL)
-        {
-            usage(curr);
-            return EXIT_FAILURE;
-        }
-
-        admin_count++;
-    }
-
-    if (cli_user_count == 0)
-    {
-        usage(argv[0]);
-        return EXIT_FAILURE;
-    }
-    if (admin_count == 0)
+    if (get_flag_count('u') < 1 || get_flag_count('a') < 1)
     {
         usage(argv[0]);
         return EXIT_FAILURE;
@@ -220,18 +142,52 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    for (size_t i = 0; i < cli_user_count; i++)
+    for (int i = 0; i < get_flag_count('u'); i++)
     {
-        store_user_add(store, cli_users[i], cli_passwords[i], false);
-        free(cli_users[i]);
-        free(cli_passwords[i]);
+        char *curr = get_flag_str_nth('u', i);
+        if (curr == NULL)
+        {
+            continue;
+        }
+
+        char *colon = strchr(curr, ':');
+
+        if (colon == NULL || colon == curr || *(colon + 1) == '\0')
+        {
+            usage(curr);
+            store_destroy(store);
+            selector_destroy(selector);
+            selector_close();
+            return EXIT_FAILURE;
+        }
+
+        *colon = '\0';
+        store_user_add(store, curr, colon + 1, false);
+        *colon = ':';
     }
 
-    for (size_t i = 0; i < admin_count; i++)
+    for (int i = 0; i < get_flag_count('a'); i++)
     {
-        store_user_add(store, admin_users[i], admin_passwords[i], true);
-        free(admin_users[i]);
-        free(admin_passwords[i]);
+        char *curr = get_flag_str_nth('a', i);
+        if (curr == NULL)
+        {
+            continue;
+        }
+
+        char *colon = strchr(curr, ':');
+
+        if (colon == NULL || colon == curr || *(colon + 1) == '\0')
+        {
+            usage(curr);
+            store_destroy(store);
+            selector_destroy(selector);
+            selector_close();
+            return EXIT_FAILURE;
+        }
+
+        *colon = '\0';
+        store_user_add(store, curr, colon + 1, true);
+        *colon = ':';
     }
 
     volatile bool stop = false;
