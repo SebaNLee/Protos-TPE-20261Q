@@ -27,18 +27,17 @@ int setup_flags(int argc, char **argv, char *flag_ids)
 
         if (p && p[1] == ':')
         {
-            values[(unsigned char)opt] = optarg;
+            value = optarg;
         }
         else
         {
-            values[(unsigned char)opt] = "";
+            value = "";
         }
 
         values[idx] = value;
         if (flag_counts[idx] < MAX_FLAG_REPEATS)
         {
             flag_values[idx][flag_counts[idx]] = value;
-            // TODO error handling (este me parece innecesario igual)
         }
 
         flag_counts[idx]++;
