@@ -155,7 +155,7 @@ static void store_session_remove(struct monitor_store *store,
  * Usuarios y autenticación
  * ========================================================================== */
 
-/* Alloc del store, defaults de config y usuario bootstrap admin/admin. */
+/* Alloc del store, defaults de config y usuarios vienen del -u al levantar el binario o ADD_USER */
 struct monitor_store *store_create(void)
 {
     struct monitor_store *store = calloc(1, sizeof(*store));
@@ -178,9 +178,6 @@ struct monitor_store *store_create(void)
         free(store);
         return NULL;
     }
-
-    /* Usuario inicial hasta que el admin cree otros vía ADD_USER */
-    store_user_add(store, "admin", "admin", true);
 
     return store;
 }
