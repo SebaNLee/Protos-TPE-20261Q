@@ -12,7 +12,13 @@ long get_flag_long(char flag);
 /* Obtiene directamente el argumento de una flag como string */
 char *get_flag_str(char flag);
 
+/* Retorna n-ésima ocurrencia */
+char *get_flag_str_nth(char flag, int n);
+
 /* Retorna 1 si la flag esta presente, 0 si no */
 int has_flag(char flag);
+
+/* Retorna cantidad de apariciones del flag */
+int get_flag_count(char flag);
 
 #endif
