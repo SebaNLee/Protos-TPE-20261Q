@@ -7,7 +7,6 @@
 #include "greeting.h"
 
 #define SOCKS_VERSION 0x05
-#define SOCKS_METHOD_USERPASS 0x02
 
 enum greeting_state
 {
@@ -21,10 +20,11 @@ void socks_greeting_parser_init(socks_greeting_parser *parser)
     parser->state = GREETING_VER;
     parser->methods_remaining = 0;
     parser->has_userpass = false;
+    parser->has_noauth = false;
+    parser->chosen_method = 0xFF;
 }
 
-socks_greeting_status socks_greeting_parser_feed(socks_greeting_parser *parser,
-                                                 uint8_t byte)
+socks_greeting_status socks_greeting_parser_feed(socks_greeting_parser *parser, uint8_t byte)
 {
     switch (parser->state)
     {
@@ -50,15 +50,33 @@ socks_greeting_status socks_greeting_parser_feed(socks_greeting_parser *parser,
         {
             parser->has_userpass = true;
         }
+        else if (byte == SOCKS_METHOD_NOAUTH)
+        {
+            parser->has_noauth = true;
+        }
         parser->methods_remaining--;
         if (parser->methods_remaining > 0)
         {
             return SOCKS_GREETING_NEED_MORE;
         }
-        return parser->has_userpass ? SOCKS_GREETING_ACCEPT
-                                    : SOCKS_GREETING_REJECT;
+        if (parser->has_userpass)
+        {
+            parser->chosen_method = SOCKS_METHOD_USERPASS;
+            return SOCKS_GREETING_ACCEPT;
+        }
+        if (parser->has_noauth)
+        {
+            parser->chosen_method = SOCKS_METHOD_NOAUTH;
+            return SOCKS_GREETING_ACCEPT;
+        }
+        return SOCKS_GREETING_REJECT;
 
     default:
         return SOCKS_GREETING_REJECT;
     }
+}
+
+uint8_t socks_greeting_chosen_method(const socks_greeting_parser *parser)
+{
+    return parser != NULL ? parser->chosen_method : 0xFF;
 }
