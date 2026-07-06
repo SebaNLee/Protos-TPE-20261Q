@@ -58,10 +58,11 @@ static void install_signal_handlers(void)
 
 static void usage(const char *program)
 {
-    fprintf(stderr, "Usage: %s [-p socks_port] [-m monitor_port] -u <user>:<pass>...\n", program);
+    fprintf(stderr, "Usage: %s [-p socks_port] [-m monitor_port] -u <user>:<pass>... -a <admin>:<pass>...\n", program);
     fprintf(stderr, "  -p  SOCKS5 port (default 1080)\n");
     fprintf(stderr, "  -m  Monitor port (default 8080)\n");
-    fprintf(stderr, "  -u  Add initial user:password pair (required, repeatable)\n");
+    fprintf(stderr, "  -u  Add SOCKS user:password pair (required, repeatable)\n");
+    fprintf(stderr, "  -a  Add admin user:password pair for monitoring (required, repeatable)\n");
 }
 
 static bool servers_is_empty(struct socks_server *socks,
@@ -75,7 +76,7 @@ int main(int argc, char **argv)
     uint16_t socks_port = 1080;
     uint16_t monitor_port = 8080;
 
-    if (setup_flags(argc, argv, "p:m:hu:") != 0)
+    if (setup_flags(argc, argv, "p:m:hu:a:") != 0)
     {
         usage(argv[0]);
         return EXIT_FAILURE;
@@ -110,6 +111,9 @@ int main(int argc, char **argv)
     char *cli_users[MAX_CLI_USERS];
     char *cli_passwords[MAX_CLI_USERS];
     size_t cli_user_count = 0;
+    char *admin_users[MAX_CLI_USERS];
+    char *admin_passwords[MAX_CLI_USERS];
+    size_t admin_count = 0;
 
     int count_u = get_flag_count('u');
 
@@ -143,7 +147,44 @@ int main(int argc, char **argv)
         cli_user_count++;
     }
 
+    int count_a = get_flag_count('a');
+
+    for (int i = 0; i < count_a && admin_count < MAX_CLI_USERS; i++)
+    {
+        char *curr = get_flag_str_nth('a', i);
+        if (curr == NULL)
+        {
+            continue;
+        }
+
+        char *colon = strchr(curr, ':');
+
+        if (colon == NULL || colon == curr || *(colon + 1) == '\0')
+        {
+            usage(curr);
+            return EXIT_FAILURE;
+        }
+
+        *colon = '\0';
+        admin_users[admin_count] = strdup(curr);
+        admin_passwords[admin_count] = strdup(colon + 1);
+        *colon = ':';
+
+        if (admin_users[admin_count] == NULL || admin_passwords[admin_count] == NULL)
+        {
+            usage(curr);
+            return EXIT_FAILURE;
+        }
+
+        admin_count++;
+    }
+
     if (cli_user_count == 0)
+    {
+        usage(argv[0]);
+        return EXIT_FAILURE;
+    }
+    if (admin_count == 0)
     {
         usage(argv[0]);
         return EXIT_FAILURE;
@@ -181,12 +222,18 @@ int main(int argc, char **argv)
 
     for (size_t i = 0; i < cli_user_count; i++)
     {
-        store_user_add(store, cli_users[i], cli_passwords[i], true);
+        store_user_add(store, cli_users[i], cli_passwords[i], false);
         free(cli_users[i]);
         free(cli_passwords[i]);
     }
 
-    /* *stop=true hace que ambos listen sockets dejen de aceptar (graceful shutdown) */
+    for (size_t i = 0; i < admin_count; i++)
+    {
+        store_user_add(store, admin_users[i], admin_passwords[i], true);
+        free(admin_users[i]);
+        free(admin_passwords[i]);
+    }
+
     volatile bool stop = false;
     struct socks_server *socks = NULL;
     struct monitor_server *monitor = NULL;
@@ -221,7 +268,6 @@ int main(int argc, char **argv)
 
         if (stop)
         {
-            /* Fase 1 del shutdown: no aceptar más clientes SOCKS ni admin */
             socks_server_stop_accepting(socks);
             monitor_server_stop_accepting(monitor);
         }
