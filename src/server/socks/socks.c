@@ -92,8 +92,10 @@ static bool socks_o2c_append(struct socks_session *session,
 
 /*
  * Paso 2 — Greeting (RFC 1928).
- * Si el mensaje es válido y ofrece username/password, encola [05][02] en o2c
- * y pasa a AUTH_USERPASS. Si no, encola [05][FF] y cierra tras enviar.
+ * El cliente ofrece una lista de métodos:
+ * - Si ofrece 0x02 (user:password), entonces encola [05][02] y pasa a auth
+ * - Si ofrece 0x00 (no auth required), entonces responde [05][00] y va directo a request
+ * - Si no, encola [05][FF] y cierra tras enviar
  */
 static unsigned socks_on_read_greeting(struct selector_key *key)
 {
@@ -120,14 +122,23 @@ static unsigned socks_on_read_greeting(struct selector_key *key)
 
         if (status == SOCKS_GREETING_ACCEPT)
         {
-            static const uint8_t resp[] = {0x05, 0x02};
+            const uint8_t method = socks_greeting_chosen_method(&session->greeting);
+            const uint8_t resp[] = {0x05, method};
 
             if (!socks_o2c_append(session, resp, sizeof(resp)))
             {
                 socks_unregister_session(key);
                 return SOCKS_ST_DONE;
             }
-            return SOCKS_ST_AUTH_USERPASS;
+
+            if (method == SOCKS_METHOD_USERPASS)
+            {
+                return SOCKS_ST_AUTH_USERPASS;
+            }
+
+            store_session_set_user(session->srv->store, session->store_id, "Anon");
+            store_session_set_phase(session->srv->store, session->store_id, STORE_SESSION_AUTH);
+            return SOCKS_ST_REQUEST;
         }
 
         static const uint8_t reject[] = {0x05, 0xFF};
