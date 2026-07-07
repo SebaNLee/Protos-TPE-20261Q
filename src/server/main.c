@@ -69,6 +69,22 @@ static bool servers_is_empty(struct socks_server *socks,
     return socks_server_is_empty(socks) && monitor_server_is_empty(monitor);
 }
 
+static bool add_flag_user(struct monitor_store *store, const char *input, bool is_admin)
+{
+    char *colon = strchr(input, ':');
+
+    if (colon == NULL || colon == input || *(colon + 1) == '\0')
+    {
+        return false;
+    }
+
+    *colon = '\0';
+    store_user_add(store, input, colon + 1, is_admin);
+    *colon = ':';
+
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     uint16_t socks_port = 1080;
@@ -144,50 +160,28 @@ int main(int argc, char **argv)
 
     for (int i = 0; i < get_flag_count('u'); i++)
     {
-        char *curr = get_flag_str_nth('u', i);
-        if (curr == NULL)
+        if (!add_flag_user(store, get_flag_str_nth('u', i), false))
         {
-            continue;
-        }
-
-        char *colon = strchr(curr, ':');
-
-        if (colon == NULL || colon == curr || *(colon + 1) == '\0')
-        {
-            usage(curr);
+            usage(argv[0]);
             store_destroy(store);
             selector_destroy(selector);
             selector_close();
+
             return EXIT_FAILURE;
         }
-
-        *colon = '\0';
-        store_user_add(store, curr, colon + 1, false);
-        *colon = ':';
     }
 
     for (int i = 0; i < get_flag_count('a'); i++)
     {
-        char *curr = get_flag_str_nth('a', i);
-        if (curr == NULL)
+        if (!add_flag_user(store, get_flag_str_nth('a', i), true))
         {
-            continue;
-        }
-
-        char *colon = strchr(curr, ':');
-
-        if (colon == NULL || colon == curr || *(colon + 1) == '\0')
-        {
-            usage(curr);
+            usage(argv[0]);
             store_destroy(store);
             selector_destroy(selector);
             selector_close();
+
             return EXIT_FAILURE;
         }
-
-        *colon = '\0';
-        store_user_add(store, curr, colon + 1, true);
-        *colon = ':';
     }
 
     volatile bool stop = false;
