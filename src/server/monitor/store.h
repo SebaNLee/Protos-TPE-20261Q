@@ -24,15 +24,18 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "shared/selector.h"
+
 #define STORE_MAX_USERS 256
 #define STORE_MAX_USERNAME 64
 #define STORE_MAX_PASSWORD 255
 #define STORE_LOG_CAPACITY 4096
 #define STORE_MAX_DEST_HOST 255
 
-/* CONFIG sessions_cap (wire name: max_connections): límite de sesiones SOCKS simultáneas. */
+/* CONFIG sessions_cap (wire name: max_connections): límite de sesiones SOCKS simultáneas.
+ * Máximo 2^14 (16384): cada sesión en relay usa 2 FDs en el selector. */
 #define STORE_SESSIONS_CAP_MIN 1u
-#define STORE_SESSIONS_CAP_MAX 65535u
+#define STORE_SESSIONS_CAP_MAX SELECTOR_MAX_SOCKS_SESSIONS /* 1u << 14 */
 #define STORE_SESSIONS_CAP_DEFAULT 1024u
 
 typedef enum

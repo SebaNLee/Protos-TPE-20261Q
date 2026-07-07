@@ -118,8 +118,8 @@ struct fdselector
     size_t events_capacity;
 };
 
-/** cantidad máxima de file descriptors, ahora arbitrario */
-#define ITEMS_MAX_SIZE 65536
+/** cantidad máxima de file descriptors (ver SELECTOR_ITEMS_MAX_SIZE en selector.h) */
+#define ITEMS_MAX_SIZE SELECTOR_ITEMS_MAX_SIZE
 
 /**
  * determina el tamaño a crecer, generando algo de slack para no tener

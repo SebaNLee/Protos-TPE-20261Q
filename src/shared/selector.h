@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <time.h>
 #include <sys/time.h>
 
 /**
@@ -182,5 +183,19 @@ int selector_fd_set_nio(const int fd);
 /** notifica que un trabajo bloqueante terminó */
 selector_status selector_notify_block(fd_selector s,
                                       const int fd);
+
+/**
+ * Límite de índices en la jump table del selector (ningún fd registrado
+ * puede ser >= SELECTOR_ITEMS_MAX_SIZE).
+ */
+#define SELECTOR_ITEMS_MAX_SIZE 65536u
+
+/**
+ * Mayor potencia de 2 de sesiones SOCKS en relay con CPU/RAM ilimitados.
+ * Cada sesión registra 2 FDs; 2^15 (32768) requeriría 65536 FDs solo en
+ * pares cliente-origen, sin margen para listen/epoll/eventfd.
+ */
+#define SELECTOR_MAX_SOCKS_SESSIONS_SHIFT 14u
+#define SELECTOR_MAX_SOCKS_SESSIONS (1u << SELECTOR_MAX_SOCKS_SESSIONS_SHIFT)
 
 #endif
