@@ -459,7 +459,7 @@ static void handle_help(struct monitor_commands_session *session, monitor_cmd *c
         {"USERS", "USERS — list all registered users with their roles"},
         {"CONFIG",
          "CONFIG param value — change runtime setting (timeout, max_connections "
-         "up to 65535, io_buffer_size for new SOCKS sessions)"},
+         "up to selector limit, io_buffer_size for new SOCKS sessions)"},
         {"ACCESS_LOG",
          "ACCESS_LOG [username] — show connection audit trail, optionally filtered "
          "by user"},

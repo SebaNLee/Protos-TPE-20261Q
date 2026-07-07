@@ -11,13 +11,17 @@ SHARED_SOURCES := $(filter-out %_test.c,$(SHARED_SOURCES))
 SERVER_SOURCES = $(filter-out %/test/%,$(call rwildcard,src/server/,*.c))
 SERVER_SOURCES := $(filter-out %_test.c,$(SERVER_SOURCES))
 CLIENT_SOURCES = $(wildcard src/client/*.c)
+STRESS_SOURCES = $(wildcard src/stress/*.c)
 
 SERVER_OBJECTS = $(SERVER_SOURCES:src/%.c=$(OBJ_FOLDER)/%.o)
 CLIENT_OBJECTS = $(CLIENT_SOURCES:src/%.c=$(OBJ_FOLDER)/%.o)
+STRESS_OBJECTS = $(STRESS_SOURCES:src/%.c=$(OBJ_FOLDER)/%.o)
 SHARED_OBJECTS = $(SHARED_SOURCES:src/%.c=$(OBJ_FOLDER)/%.o)
 
-SERVER_OUTPUT  = $(BIN_FOLDER)/server
-CLIENT_OUTPUT  = $(BIN_FOLDER)/client
+SERVER_OUTPUT        = $(BIN_FOLDER)/server
+CLIENT_OUTPUT        = $(BIN_FOLDER)/client
+STRESS_CLIENT_OUTPUT = $(BIN_FOLDER)/stress_client
+ECHO_BACKEND_OUTPUT  = $(BIN_FOLDER)/echo_backend
 
 TEST_BINARIES  = $(BUILD_FOLDER)/buffer_test \
                  $(BUILD_FOLDER)/selector_test \
@@ -40,14 +44,19 @@ endif
 ifneq ($(CLIENT_SOURCES),)
 TARGETS        += client
 endif
+ifneq ($(STRESS_SOURCES),)
+TARGETS        += stress
+endif
 
-.PHONY: all server client test check clean
+.PHONY: all server client stress test check clean
 
 all: $(TARGETS)
 
 server: $(SERVER_OUTPUT)
 
 client: $(CLIENT_OUTPUT)
+
+stress: $(STRESS_CLIENT_OUTPUT) $(ECHO_BACKEND_OUTPUT)
 
 test: $(TEST_BINARIES)
 
@@ -67,6 +76,14 @@ $(SERVER_OUTPUT): $(SERVER_OBJECTS) $(SHARED_OBJECTS)
 $(CLIENT_OUTPUT): $(CLIENT_OBJECTS) $(SHARED_OBJECTS)
 	mkdir -p $(BIN_FOLDER)
 	$(COMPILER) $(COMPILER_FLAGS) $^ $(LINKER_FLAGS) -o $@
+
+$(STRESS_CLIENT_OUTPUT): $(OBJ_FOLDER)/stress/stress_client.o $(SHARED_OBJECTS)
+	mkdir -p $(BIN_FOLDER)
+	$(COMPILER) $(COMPILER_FLAGS) $^ $(LINKER_FLAGS) -lpthread -o $@
+
+$(ECHO_BACKEND_OUTPUT): $(OBJ_FOLDER)/stress/echo_backend.o $(SHARED_OBJECTS)
+	mkdir -p $(BIN_FOLDER)
+	$(COMPILER) $(COMPILER_FLAGS) $^ $(LINKER_FLAGS) -lpthread -o $@
 
 $(OBJ_FOLDER)/%.o: src/%.c
 	mkdir -p $(dir $@)
