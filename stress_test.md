@@ -2,12 +2,14 @@
 
 ## Herramientas
 
-| Binario                       | Rol                                             |
-| ----------------------------- | ----------------------------------------------- |
-| `bin/server`                  | Proxy SOCKS5 bajo prueba                        |
-| `bin/stress_client`           | Generador de carga (handshake + auth + CONNECT) |
-| `bin/echo_backend`            | Destino TCP de eco detrás del proxy             |
-| `scripts/run_stress_tests.sh` | Batería de conexiones + throughput              |
+| Binario                       | Rol                                                          |
+| ----------------------------- | ------------------------------------------------------------ |
+| `bin/server`                  | Proxy SOCKS5 bajo prueba                                     |
+| `bin/stress_client`           | Generador de carga (`connections`, `throughput`, **`live`**) |
+| `bin/client`                  | Monitor REPL (STATS, CONNECTIONS) en otra terminal           |
+| `bin/echo_backend`            | Destino TCP de eco detrás del proxy                          |
+| `scripts/run_stress_live.sh`  | Carga **live** contra server ya corriendo (no levanta nada)  |
+| `scripts/run_stress_tests.sh` | Suite de pruebas autocontenida (conexiones + throughput)     |
 
 ```bash
 make stress
@@ -20,6 +22,42 @@ stress_client → bin/server (:1080) → echo_backend (:9999)
 ```
 
 El proxy es lo que se mide. `echo_backend` simula un servidor de destino predecible (loopback).
+
+## Prueba live (server ya corriendo + monitor manual)
+
+Recomendado para demostrar métricas en tiempo real con `bin/client`.
+
+**Terminal 1 — proxy**
+
+```bash
+docker compose run --rm -p 1080:1080 -p 8080:8080 dev \
+  ./bin/server -p 1080 -m 8080 -u socksuser:sockspass -a admin:admin
+```
+
+**Terminal 2 — destino**
+
+```bash
+docker compose run --rm -p 9999:9999 dev ./bin/echo_backend -p 9999
+```
+
+**Terminal 3 — monitor**
+
+```bash
+./bin/client -p 8080
+# AUTH admin admin
+# STATS
+# CONNECTIONS
+```
+
+**Terminal 4 — carga (mantiene túneles hasta Ctrl+C)**
+
+```bash
+make stress
+./scripts/run_stress_live.sh -n 500 -k 0
+# o: ./bin/stress_client -M live -u socksuser:sockspass -d 127.0.0.1:9999 -n 500 -k 0
+```
+
+`-k 0` (default en live): hold hasta Ctrl+C. `-k 60`: cierra a los 60 s. El modo live **no** consulta el monitor; eso lo hacés en la terminal 3.
 
 ## Entorno
 
