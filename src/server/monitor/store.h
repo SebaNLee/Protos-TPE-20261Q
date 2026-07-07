@@ -199,14 +199,10 @@ void store_session_mark_failed(struct monitor_store *store, store_session_id id)
 /* Cierre normal: marca log CLOSED y libera el slot. */
 void store_session_end(struct monitor_store *store, store_session_id id);
 
-/* Iteradores usados por monitor_commands (CONNECTIONS, USERS, ACCESS_LOG). */
+/* Iteradores usados por monitor_commands (CONNECTIONS, ACCESS_LOG). */
 void store_sessions_foreach(const struct monitor_store *store,
                             bool (*fn)(const store_active_session *session, void *ctx),
                             void *ctx);
-
-void store_active_usernames_foreach(const struct monitor_store *store,
-                                    bool (*fn)(const char *username, void *ctx),
-                                    void *ctx);
 
 /* Recorre el log de más reciente a más antiguo; filter=NULL = todos. */
 void store_log_foreach(const struct monitor_store *store,

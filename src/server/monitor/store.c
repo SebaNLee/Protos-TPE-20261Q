@@ -668,49 +668,6 @@ void store_sessions_foreach(const struct monitor_store *store,
     }
 }
 
-/* Dedup de usernames: un usuario con varias sesiones activas aparece una vez */
-void store_active_usernames_foreach(const struct monitor_store *store,
-                                    bool (*fn)(const char *username, void *ctx),
-                                    void *ctx)
-{
-    if (store == NULL || fn == NULL)
-    {
-        return;
-    }
-
-    for (size_t i = 0; i < store->sessions_cap; i++)
-    {
-        const char *username = store->sessions[i].info.username;
-
-        if (!store->sessions[i].active || username[0] == '\0')
-        {
-            continue;
-        }
-
-        bool seen = false;
-        for (size_t j = 0; j < i; j++)
-        {
-            if (store->sessions[j].active &&
-                strcmp(store->sessions[j].info.username, username) == 0)
-            {
-                seen = true;
-                break;
-            }
-        }
-
-        if (seen)
-        {
-            continue;
-        }
-
-        if (!fn(username, ctx))
-        {
-            return;
-        }
-    }
-}
-
-/* Recorre el log de más reciente a más antiguo; con buffer lleno usa wrap en log_head */
 void store_log_foreach(const struct monitor_store *store,
                        const char *username_filter,
                        bool (*fn)(const store_log_entry *entry, void *ctx),

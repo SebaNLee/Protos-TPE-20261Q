@@ -79,10 +79,12 @@ static bool add_flag_user(struct monitor_store *store, const char *input, bool i
     }
 
     *colon = '\0';
-    store_user_add(store, input, colon + 1, is_admin);
+    const store_user_result result =
+        store_user_add(store, input, colon + 1, is_admin);
     *colon = ':';
 
-    return true;
+    // Fail if user already exists
+    return result == STORE_USER_OK;
 }
 
 int main(int argc, char **argv)

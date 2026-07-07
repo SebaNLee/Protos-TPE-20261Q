@@ -314,25 +314,6 @@ START_TEST(test_connections_list)
 }
 END_TEST
 
-START_TEST(test_users_dedup)
-{
-    struct monitor_store *store = store_create();
-    mt_name_list list = {0};
-
-    const store_session_id a = store_session_begin(store);
-    const store_session_id b = store_session_begin(store);
-    store_session_set_user(store, a, "same");
-    store_session_set_user(store, b, "same");
-
-    store_active_usernames_foreach(store, mt_collect_name, &list);
-    ck_assert_uint_eq(1, list.count);
-
-    store_session_end(store, a);
-    store_session_end(store, b);
-    store_destroy(store);
-}
-END_TEST
-
 START_TEST(test_session_phases)
 {
     ck_assert_str_eq("AUTH", store_session_phase_str(STORE_SESSION_AUTH));
@@ -502,7 +483,6 @@ Suite *monitor_store_suite(void)
     tcase_add_test(tc, test_bytes_metrics);
     tcase_add_test(tc, test_max_connections_cap);
     tcase_add_test(tc, test_connections_list);
-    tcase_add_test(tc, test_users_dedup);
     tcase_add_test(tc, test_session_phases);
     tcase_add_test(tc, test_session_failed);
     tcase_add_test(tc, test_session_end);

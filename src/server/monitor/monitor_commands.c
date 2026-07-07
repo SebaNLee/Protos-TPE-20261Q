@@ -78,6 +78,7 @@ void monitor_commands_session_init(struct monitor_commands_session *session,
 void monitor_commands_queue_greeting(struct monitor_commands_session *session)
 {
     commands_wb_append(session, MONITOR_COMMANDS_GREETING);
+    commands_wb_append(session, ".\n");
 }
 
 /* Lee hasta max bytes de wb para enviar al socket (write parcial). */
@@ -233,10 +234,28 @@ static bool append_user(const char *username, store_role role, void *ctx)
     return true;
 }
 
+/* Callback: marca que hay al menos un usuario registrado. */
+static bool count_user(const char *username, store_role role, void *ctx)
+{
+    (void)username;
+    (void)role;
+    *(bool *)ctx = true;
+    return true;
+}
+
 /* Lista todos los usuarios registrados con su rol. */
 static void handle_users(struct monitor_commands_session *session)
 {
     user_ctx ctx = {.session = session};
+    bool any = false;
+
+    store_users_foreach(session->store, count_user, &any);
+    if (!any)
+    {
+        commands_wb_append(session, "+OK\n");
+        return;
+    }
+
     store_users_foreach(session->store, append_user, &ctx);
 }
 
@@ -596,6 +615,7 @@ static void process_byte(struct monitor_commands_session *session, char ch)
     {
         session->line_len = 0;
         commands_wb_append(session, "-ERR line too long\n");
+        commands_wb_append(session, ".\n");
         return;
     }
 

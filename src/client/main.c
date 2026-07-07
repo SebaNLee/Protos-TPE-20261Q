@@ -172,16 +172,13 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    // greeting
-    char line[LINE_BUF_SIZE];
-    if (read_line(fd, line, sizeof(line)) < 0)
+    if (read_until_dot(fd) < 0)
     {
         fprintf(stderr, "connection closed\n");
         close(fd);
 
         return EXIT_FAILURE;
     }
-    printf("%s\n", line);
 
     // REPL main loop
     while (true)
@@ -207,10 +204,7 @@ int main(int argc, char **argv)
             continue;
         }
 
-        if (strcmp(input, "QUIT") == 0)
-        {
-            break;
-        }
+        const bool is_quit = strcmp(input, "QUIT") == 0;
 
         input[len] = '\n';
         if (write_all(fd, input) < 0)
@@ -224,6 +218,11 @@ int main(int argc, char **argv)
         {
             fprintf(stderr, "connection lost\n");
 
+            break;
+        }
+
+        if (is_quit)
+        {
             break;
         }
     }
