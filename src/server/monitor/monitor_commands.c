@@ -456,15 +456,15 @@ static void handle_help(struct monitor_commands_session *session, monitor_cmd *c
     if (cmd->argc == 1)
     {
         commands_wb_append(session, "+OK Available commands:\n");
-        commands_wb_append(session, "+OK AUTH username password\n");
+        commands_wb_append(session, "+OK AUTH <username> <password>\n");
         commands_wb_append(session, "+OK STATS\n");
         commands_wb_append(session, "+OK CONNECTIONS\n");
         commands_wb_append(session, "+OK USERS\n");
-        commands_wb_append(session, "+OK CONFIG param value\n");
+        commands_wb_append(session, "+OK CONFIG <param> <value>\n");
         commands_wb_append(session, "+OK ACCESS_LOG [username]\n");
-        commands_wb_append(session, "+OK ADD_USER username password [admin]\n");
-        commands_wb_append(session, "+OK DEL_USER username\n");
-        commands_wb_append(session, "+OK SET_PASSWORD username newpassword\n");
+        commands_wb_append(session, "+OK ADD_USER <username> <password> [admin]\n");
+        commands_wb_append(session, "+OK DEL_USER <username>\n");
+        commands_wb_append(session, "+OK SET_PASSWORD <username> <newpassword>\n");
         commands_wb_append(session, "+OK HELP [command]\n");
         commands_wb_append(session, "+OK QUIT\n");
         return;

@@ -80,6 +80,34 @@ docker compose down
 | `make clean` | Remove `obj/`, `bin/`, `build/`                                                |
 
 
+## Monitor REPL (monitor and manage client)
+
+Auth:
+
+```
++OK ChugusMonitor v1.0
+AUTH admin admin
+```
+
+Available commands (post-auth):
+
+| Command | Description |
+|---------|-------------|
+| `STATS` | proxy metrics |
+| `CONNECTIONS` | active SOCKS sessions |
+| `USERS` | saved users |
+| `CONFIG <param> <value>` | runtime configs (`timeout`, `max_connections`, `io_buffer_size`) |
+| `ACCESS_LOG [username]` | connection logs |
+| `ADD_USER <user> <pass> [admin]` | create new user |
+| `DEL_USER <user>` | delete user |
+| `SET_PASSWORD <user> <newpass>` | change user password |
+| `HELP [command]` | show help |
+| `QUIT` | close connection |
+
+> Note: All server responses finish with a `.\n` which marks the end of the REPL message.
+
+> Note: HELP is available before auth too.
+
 ## Devs
 
 ### pre-commit
