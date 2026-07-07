@@ -936,8 +936,51 @@ static void socks_check_idle_timeout(struct socks_session *session,
     }
 }
 
+static size_t socks_session_buffer_size(const struct socks_server *srv)
+{
+    uint32_t size = SOCKS_BUFFER_SIZE_DEFAULT;
+
+    if (srv != NULL && srv->store != NULL &&
+        store_config_get(srv->store, STORE_CFG_IO_BUFFER_SIZE, &size))
+    {
+        return (size_t)size;
+    }
+
+    return SOCKS_BUFFER_SIZE_DEFAULT;
+}
+
+static void socks_session_destroy_buffers(struct socks_session *session)
+{
+    if (session == NULL)
+    {
+        return;
+    }
+
+    free(session->c2o_backing);
+    free(session->o2c_backing);
+    session->c2o_backing = NULL;
+    session->o2c_backing = NULL;
+}
+
+static bool socks_session_init_buffers(struct socks_session *session)
+{
+    const size_t buf_size = socks_session_buffer_size(session->srv);
+
+    session->c2o_backing = malloc(buf_size);
+    session->o2c_backing = malloc(buf_size);
+    if (session->c2o_backing == NULL || session->o2c_backing == NULL)
+    {
+        socks_session_destroy_buffers(session);
+        return false;
+    }
+
+    buffer_init(&session->c2o, buf_size, session->c2o_backing);
+    buffer_init(&session->o2c, buf_size, session->o2c_backing);
+    return true;
+}
+
 /* Inicializa una sesión recién aceptada. origin_fd queda en -1 (sin destino). */
-static void socks_session_init(struct socks_session *session,
+static bool socks_session_init(struct socks_session *session,
                                struct socks_server *srv,
                                int client_fd)
 {
@@ -945,9 +988,13 @@ static void socks_session_init(struct socks_session *session,
     session->client_fd = client_fd;
     session->origin_fd = -1;
     session->dest_addr_len = 0;
+    session->c2o_backing = NULL;
+    session->o2c_backing = NULL;
 
-    buffer_init(&session->c2o, SOCKS_BUFFER_SIZE, session->c2o_backing);
-    buffer_init(&session->o2c, SOCKS_BUFFER_SIZE, session->o2c_backing);
+    if (!socks_session_init_buffers(session))
+    {
+        return false;
+    }
 
     socks_greeting_parser_init(&session->greeting);
     socks_auth_parser_init(&session->auth);
@@ -962,6 +1009,7 @@ static void socks_session_init(struct socks_session *session,
     session->dest_recorded = false;
 
     socks_session_stm_init(session);
+    return true;
 }
 
 /* ==========================================================================
@@ -1181,6 +1229,7 @@ static void socks_client_close(struct selector_key *key)
         close(key->fd);
     }
 
+    socks_session_destroy_buffers(session);
     free(session);
 }
 
@@ -1237,7 +1286,16 @@ static void socks_passive_read(struct selector_key *key)
             continue;
         }
 
-        socks_session_init(session, srv, client_fd);
+        if (!socks_session_init(session, srv, client_fd))
+        {
+            if (srv->store != NULL && store_id != STORE_SESSION_INVALID)
+            {
+                store_session_end(srv->store, store_id);
+            }
+            free(session);
+            close(client_fd);
+            continue;
+        }
         session->store_id = store_id;
 
         if (selector_register(key->s,
@@ -1250,6 +1308,7 @@ static void socks_passive_read(struct selector_key *key)
             {
                 store_session_end(srv->store, store_id);
             }
+            socks_session_destroy_buffers(session);
             free(session);
             close(client_fd);
             continue;
