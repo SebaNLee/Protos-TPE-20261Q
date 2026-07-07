@@ -11,22 +11,17 @@
 #include "shared/flags.h"
 
 /*
- * client/main.c — CLI de monitoreo del proxy.
+ * client/main.c — REPL de monitoreo del proxy.
  *
- * Este programa no habla SOCKS; se conecta al puerto de monitoreo (-p, default 8080)
- * y traduce subcomandos (stats, add-user, …) a líneas del protocolo wire.
+ * Se conecta al puerto de monitoreo (-p, default 8080) y permite
+ * ejecutar comandos del protocolo ChugusMonitor a modo REPL.
  */
 
-#define MONITOR_GREETING "+OK Hello! from Proxy/1.0"
 #define LINE_BUF_SIZE 4096
 
 static void usage(const char *program)
 {
-    fprintf(stderr,
-            "Usage: %s -p port [-u user] [-w pass] <command> [args...]\n",
-            program);
-    fprintf(stderr, "Commands: stats, connections, users, config, access-log,\n");
-    fprintf(stderr, "          add-user, del-user, set-password, help, quit\n");
+    fprintf(stderr, "Usage: %s [-p port]\n", program);
 }
 
 static int connect_server(const char *host, uint16_t port)
@@ -122,221 +117,42 @@ static int write_all(int fd, const char *data)
     return 0;
 }
 
-/*
- * Autenticación transparente para el usuario del CLI.
- * El servidor manda el greeting primero; nosotros respondemos con AUTH.
- */
-static int read_greeting(int fd)
+/* Lee todas las líneas de respuesta hasta el terminador ".\n" */
+static int read_until_dot(int fd)
 {
     char line[LINE_BUF_SIZE];
 
-    if (read_line(fd, line, sizeof(line)) < 0)
-    {
-        return -1;
-    }
-    if (strcmp(line, MONITOR_GREETING) != 0)
-    {
-        fprintf(stderr, "unexpected greeting: %s\n", line);
-        return -1;
-    }
-
-    return 0;
-}
-
-/*
- * Autenticación transparente para el usuario del CLI.
- * El servidor manda el greeting primero; nosotros respondemos con AUTH.
- */
-static int monitor_auth(int fd, const char *user, const char *pass)
-{
-    char line[LINE_BUF_SIZE];
-
-    if (read_greeting(fd) < 0)
-    {
-        return -1;
-    }
-
-    char auth_cmd[LINE_BUF_SIZE];
-    snprintf(auth_cmd, sizeof(auth_cmd), "AUTH %s %s\n", user, pass);
-    if (write_all(fd, auth_cmd) < 0)
-    {
-        return -1;
-    }
-
-    if (read_line(fd, line, sizeof(line)) < 0)
-    {
-        return -1;
-    }
-    if (strcmp(line, "+OK") != 0)
-    {
-        fprintf(stderr, "auth failed: %s\n", line);
-        return -1;
-    }
-
-    return 0;
-}
-
-/*
- * Convierte el subcomando del CLI (stats, add-user, …) en una línea wire,
- * la envía, hace half-close y imprime todas las respuestas del servidor.
- */
-static int run_command(int fd, int argc, char **argv, int arg_start)
-{
-    char cmd[LINE_BUF_SIZE];
-
-    if (arg_start >= argc)
-    {
-        usage(argv[0]);
-        return EXIT_FAILURE;
-    }
-
-    const char *sub = argv[arg_start];
-
-    if (strcmp(sub, "stats") == 0)
-    {
-        strcpy(cmd, "STATS\n");
-    }
-    else if (strcmp(sub, "connections") == 0)
-    {
-        strcpy(cmd, "CONNECTIONS\n");
-    }
-    else if (strcmp(sub, "users") == 0)
-    {
-        strcpy(cmd, "USERS\n");
-    }
-    else if (strcmp(sub, "config") == 0)
-    {
-        if (arg_start + 2 >= argc)
-        {
-            fprintf(stderr, "usage: config <param> <value>\n");
-            return EXIT_FAILURE;
-        }
-        snprintf(cmd,
-                 sizeof(cmd),
-                 "CONFIG %s %s\n",
-                 argv[arg_start + 1],
-                 argv[arg_start + 2]);
-    }
-    else if (strcmp(sub, "access-log") == 0)
-    {
-        if (arg_start + 1 < argc)
-        {
-            snprintf(cmd, sizeof(cmd), "ACCESS_LOG %s\n", argv[arg_start + 1]);
-        }
-        else
-        {
-            strcpy(cmd, "ACCESS_LOG\n");
-        }
-    }
-    else if (strcmp(sub, "add-user") == 0)
-    {
-        if (arg_start + 2 >= argc)
-        {
-            fprintf(stderr, "usage: add-user <user> <pass> [admin]\n");
-            return EXIT_FAILURE;
-        }
-        if (arg_start + 3 < argc && strcmp(argv[arg_start + 3], "admin") == 0)
-        {
-            snprintf(cmd,
-                     sizeof(cmd),
-                     "ADD_USER %s %s admin\n",
-                     argv[arg_start + 1],
-                     argv[arg_start + 2]);
-        }
-        else
-        {
-            snprintf(cmd,
-                     sizeof(cmd),
-                     "ADD_USER %s %s\n",
-                     argv[arg_start + 1],
-                     argv[arg_start + 2]);
-        }
-    }
-    else if (strcmp(sub, "del-user") == 0)
-    {
-        if (arg_start + 1 >= argc)
-        {
-            fprintf(stderr, "usage: del-user <user>\n");
-            return EXIT_FAILURE;
-        }
-        snprintf(cmd, sizeof(cmd), "DEL_USER %s\n", argv[arg_start + 1]);
-    }
-    else if (strcmp(sub, "set-password") == 0)
-    {
-        if (arg_start + 2 >= argc)
-        {
-            fprintf(stderr, "usage: set-password <user> <pass>\n");
-            return EXIT_FAILURE;
-        }
-        snprintf(cmd,
-                 sizeof(cmd),
-                 "SET_PASSWORD %s %s\n",
-                 argv[arg_start + 1],
-                 argv[arg_start + 2]);
-    }
-    else if (strcmp(sub, "help") == 0)
-    {
-        if (arg_start + 1 < argc)
-        {
-            snprintf(cmd, sizeof(cmd), "HELP %s\n", argv[arg_start + 1]);
-        }
-        else
-        {
-            strcpy(cmd, "HELP\n");
-        }
-    }
-    else if (strcmp(sub, "quit") == 0)
-    {
-        strcpy(cmd, "QUIT\n");
-    }
-    else
-    {
-        fprintf(stderr, "unknown command: %s\n", sub);
-        return EXIT_FAILURE;
-    }
-
-    if (write_all(fd, cmd) < 0)
-    {
-        return EXIT_FAILURE;
-    }
-
-    /* Half-close: el server procesa lo buffered y responde antes de cerrar */
-    if (shutdown(fd, SHUT_WR) < 0)
-    {
-        return EXIT_FAILURE;
-    }
-
-    char line[LINE_BUF_SIZE];
-    int exit_code = EXIT_SUCCESS;
     while (read_line(fd, line, sizeof(line)) == 0)
     {
-        printf("%s\n", line);
-        if (strncmp(line, "-ERR", 4) == 0)
+        if (strcmp(line, ".") == 0)
         {
-            exit_code = EXIT_FAILURE;
+            return 0;
         }
+
+        printf("%s\n", line);
     }
 
-    return exit_code;
+    return -1;
 }
 
 int main(int argc, char **argv)
 {
     uint16_t port = 8080;
-    const char *user = "admin";
-    const char *pass = "admin";
 
-    if (setup_flags(argc, argv, "p:u:w:h") != 0)
+    if (setup_flags(argc, argv, "p:h") != 0)
     {
         usage(argv[0]);
+
         return EXIT_FAILURE;
     }
 
     if (has_flag('h'))
     {
         usage(argv[0]);
+
         return EXIT_SUCCESS;
     }
+
     if (has_flag('p'))
     {
         const long value = get_flag_long('p');
@@ -347,46 +163,72 @@ int main(int argc, char **argv)
         }
         port = (uint16_t)value;
     }
-    if (has_flag('u'))
-    {
-        user = get_flag_str('u');
-    }
-    if (has_flag('w'))
-    {
-        pass = get_flag_str('w');
-    }
-
-    if (optind >= argc)
-    {
-        usage(argv[0]);
-        return EXIT_FAILURE;
-    }
 
     const int fd = connect_server("127.0.0.1", port);
     if (fd < 0)
     {
         fprintf(stderr, "connect failed: %s\n", strerror(errno));
+
         return EXIT_FAILURE;
     }
 
-    const char *sub = argv[optind];
-    const bool needs_auth = strcmp(sub, "help") != 0;
-
-    if (needs_auth)
+    // greeting
+    char line[LINE_BUF_SIZE];
+    if (read_line(fd, line, sizeof(line)) < 0)
     {
-        if (monitor_auth(fd, user, pass) < 0)
+        fprintf(stderr, "connection closed\n");
+        close(fd);
+
+        return EXIT_FAILURE;
+    }
+    printf("%s\n", line);
+
+    // REPL main loop
+    while (true)
+    {
+        printf("monitor$ ");
+        fflush(stdout);
+
+        char input[LINE_BUF_SIZE];
+        if (fgets(input, sizeof(input), stdin) == NULL)
         {
-            close(fd);
-            return EXIT_FAILURE;
+            printf("\n");
+
+            break;
+        }
+
+        size_t len = strlen(input);
+        while (len > 0 && (input[len - 1] == '\n' || input[len - 1] == '\r'))
+        {
+            input[--len] = '\0';
+        }
+
+        if (len == 0)
+        {
+            continue;
+        }
+
+        if (strcmp(input, "QUIT") == 0)
+        {
+            break;
+        }
+
+        input[len] = '\n';
+        if (write_all(fd, input) < 0)
+        {
+            fprintf(stderr, "write error\n");
+
+            break;
+        }
+
+        if (read_until_dot(fd) < 0)
+        {
+            fprintf(stderr, "connection lost\n");
+
+            break;
         }
     }
-    else if (read_greeting(fd) < 0)
-    {
-        close(fd);
-        return EXIT_FAILURE;
-    }
 
-    const int status = run_command(fd, argc, argv, optind);
     close(fd);
-    return status;
+    return EXIT_SUCCESS;
 }

@@ -6,7 +6,7 @@
 #include <string.h>
 
 /*
- * monitor_commands.c — comandos del protocolo Proxy/1.0.
+ * monitor_commands.c — comandos del protocolo ChugusMonitor.
  *
  * Formato: texto línea a línea, termina con '\n' (acepta '\r\n').
  * monitor.c lee del socket → feed(); las respuestas van a wb.
@@ -74,7 +74,7 @@ void monitor_commands_session_init(struct monitor_commands_session *session,
     buffer_init(&session->wb, MONITOR_BUFFER_SIZE, session->wb_backing);
 }
 
-/* Encola el greeting Proxy/1.0 en wb (primera respuesta al conectar). */
+/* Encola el greeting en wb (primera respuesta al conectar). */
 void monitor_commands_queue_greeting(struct monitor_commands_session *session)
 {
     commands_wb_append(session, MONITOR_COMMANDS_GREETING);
@@ -122,7 +122,7 @@ static void split_line(monitor_cmd *cmd, char *line)
 }
 
 /* ==========================================================================
- * Handlers de comandos Proxy/1.0
+ * Handlers de comandos ChungusMonitor
  * ========================================================================== */
 
 /* AUTH: valida admin contra store y pasa a MONITOR_ST_AUTHENTICATED. */
@@ -507,7 +507,10 @@ static void handle_quit(struct monitor_commands_session *session)
 
 /*
  * Puerta de auth y router de comandos.
- * AWAIT_AUTH: AUTH y HELP; AUTHENTICATED: resto (AUTH repetido → error).
+ *   AWAIT_AUTH: AUTH, HELP habilitados, resto -ERR not authenticated
+ *   AUTHENTICATED: todos los comandos, excepto AUTH repetido (error)
+ *
+ * Toda respuesta termina con ".\n" para delimitar fin en el REPL cliente.
  */
 static void dispatch_line(struct monitor_commands_session *session, char *line)
 {
@@ -534,12 +537,17 @@ static void dispatch_line(struct monitor_commands_session *session, char *line)
         {
             commands_wb_append(session, "-ERR not authenticated\n");
         }
+
+        commands_wb_append(session, ".\n");
+
         return;
     }
 
     if (strcmp(cmd.cmd, "AUTH") == 0)
     {
         commands_wb_append(session, "-ERR already authenticated\n");
+        commands_wb_append(session, ".\n");
+
         return;
     }
     if (strcmp(cmd.cmd, "STATS") == 0)
@@ -586,6 +594,8 @@ static void dispatch_line(struct monitor_commands_session *session, char *line)
     {
         commands_wb_append(session, "-ERR unknown command\n");
     }
+
+    commands_wb_append(session, ".\n");
 }
 
 /* ==========================================================================

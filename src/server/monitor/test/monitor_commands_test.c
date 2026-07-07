@@ -6,7 +6,7 @@
 #include "monitor_test_util.h"
 
 /*
- * monitor_commands_test.c — tests unitarios del protocolo Proxy/1.0.
+ * monitor_commands_test.c — tests unitarios del protocolo ChugusMonitor.
  *
  * Suites: greeting, auth (STM), CRLF/partial lines, pipelining, comandos CRUD,
  * CONFIG, ACCESS_LOG, HELP, QUIT, EOF sin '\n' final.

@@ -239,7 +239,7 @@ START_TEST(test_tcp_greeting)
 
     char line[256];
     ck_assert_int_gt(read_line(fd, line, sizeof(line)), 0);
-    ck_assert_str_eq("+OK Hello! from Proxy/1.0", line);
+    ck_assert_str_eq("+OK ChugusMonitor v1.0", line);
 
     close(fd);
     stop_server(pid, stop_w);
