@@ -224,36 +224,20 @@ typedef struct
     struct monitor_commands_session *session;
 } user_ctx;
 
-/* Callback: emite una línea +OK por username único conectado. */
-static bool append_user(const char *username, void *ctx)
+/* Callback: emite una línea +OK por usuario registrado. */
+static bool append_user(const char *username, store_role role, void *ctx)
 {
     user_ctx *uctx = ctx;
-    commands_wb_appendf(uctx->session, "+OK %s\n", username);
+    const char *role_str = role == STORE_ROLE_ADMIN ? "admin" : "user";
+    commands_wb_appendf(uctx->session, "+OK %s (%s)\n", username, role_str);
     return true;
 }
 
-/* Callback: marca que hay al menos un usuario conectado. */
-static bool count_user(const char *username, void *ctx)
-{
-    (void)username;
-    *(bool *)ctx = true;
-    return true;
-}
-
-/* Dos pasadas: si no hay usuarios conectados → +OK\n; si hay → una línea por usuario */
+/* Lista todos los usuarios registrados con su rol. */
 static void handle_users(struct monitor_commands_session *session)
 {
     user_ctx ctx = {.session = session};
-    bool any = false;
-
-    store_active_usernames_foreach(session->store, count_user, &any);
-    if (!any)
-    {
-        commands_wb_append(session, "+OK\n");
-        return;
-    }
-
-    store_active_usernames_foreach(session->store, append_user, &ctx);
+    store_users_foreach(session->store, append_user, &ctx);
 }
 
 /*
@@ -452,7 +436,7 @@ static void handle_help(struct monitor_commands_session *session, monitor_cmd *c
         {"CONNECTIONS",
          "CONNECTIONS — list active SOCKS sessions (username host:port phase "
          "bytes_up bytes_down)"},
-        {"USERS", "USERS — list usernames with active SOCKS connections"},
+        {"USERS", "USERS — list all registered users with their roles"},
         {"CONFIG",
          "CONFIG param value — change runtime setting (timeout, max_connections, "
          "io_buffer_size)"},

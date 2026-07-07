@@ -769,6 +769,27 @@ bool store_user_exists(const struct monitor_store *store, const char *username)
     return false;
 }
 
+void store_users_foreach(const struct monitor_store *store, bool (*fn)(const char *username, store_role role, void *ctx), void *ctx)
+{
+    if (store == NULL || fn == NULL)
+    {
+        return;
+    }
+
+    for (size_t i = 0; i < STORE_MAX_USERS; i++)
+    {
+        if (!store->users[i].used)
+        {
+            continue;
+        }
+
+        if (!fn(store->users[i].username, store->users[i].role, ctx))
+        {
+            return;
+        }
+    }
+}
+
 /* Devuelve etiqueta textual del estado de una entrada de log. */
 const char *store_log_state_str(store_log_state state)
 {

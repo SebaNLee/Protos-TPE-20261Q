@@ -280,7 +280,7 @@ START_TEST(test_users_empty)
     mt_auth_admin(&proto);
     mt_feed(&proto, "USERS\n");
     mt_drain_all(&proto, out, sizeof(out));
-    mt_assert_has(out, "+OK\n");
+    mt_assert_has(out, "+OK admin (admin)\n");
 
     store_destroy(store);
 }
@@ -293,11 +293,12 @@ START_TEST(test_users_active)
     setup_commands(&proto, store);
     char out[MT_DRAIN_SIZE];
 
-    mt_sim_session(store, "bob", "x.com", 80, 0, 0, false);
+    store_user_add(store, "bob", "pass", false);
     mt_auth_admin(&proto);
     mt_feed(&proto, "USERS\n");
     mt_drain_all(&proto, out, sizeof(out));
-    mt_assert_has(out, "+OK bob\n");
+    mt_assert_has(out, "+OK admin (admin)\n");
+    mt_assert_has(out, "+OK bob (user)\n");
 
     store_destroy(store);
 }
@@ -583,7 +584,7 @@ START_TEST(test_help_users)
 
     mt_feed(&proto, "HELP USERS\n");
     mt_drain_all(&proto, out, sizeof(out));
-    mt_assert_has(out, "USERS — list usernames with active SOCKS connections");
+    mt_assert_has(out, "USERS — list all registered users with their roles");
 
     store_destroy(store);
 }

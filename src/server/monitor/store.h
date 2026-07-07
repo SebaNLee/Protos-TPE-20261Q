@@ -217,8 +217,12 @@ void store_log_foreach(const struct monitor_store *store,
 /* true si el username existe en la tabla de usuarios. */
 bool store_user_exists(const struct monitor_store *store, const char *username);
 
+/* Itera sobre todos los usuarios registrados, devuelve username, role, ctx */
+void store_users_foreach(const struct monitor_store *store, bool (*fn)(const char *username, store_role role, void *ctx), void *ctx);
+
 /* Devuelve etiqueta textual del estado de una entrada de log. */
 const char *store_log_state_str(store_log_state state);
+
 /* Devuelve etiqueta textual de la fase de una sesión SOCKS activa. */
 const char *store_session_phase_str(store_session_phase phase);
 
