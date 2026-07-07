@@ -2,10 +2,12 @@
  * stress_client.c — generador de carga SOCKS5 para pruebas de estrés.
  *
  * Modos:
- *   connections  (-M connections) — abre N túneles concurrentes y reporta éxitos/fallos
- *   throughput   (-M throughput)  — N clientes transfieren -b bytes cada uno y mide MB/s
+ *   connections  (-M connections) — abre N túneles, hold opcional (-k), cierra
+ *   throughput   (-M throughput)  — N clientes transfieren -b bytes cada uno
+ *   live         (-M live)        — mantiene N túneles abiertos; usar bin/client
+ *                                   en otra terminal para STATS/CONNECTIONS
  *
- * Consulta métricas del monitor (STATS) antes y después si se indica -m / -A.
+ * Consulta métricas del monitor (STATS) antes y después solo con -q (no en live).
  */
 
 #include <arpa/inet.h>
@@ -13,6 +15,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -34,6 +37,7 @@ typedef enum
 {
     STRESS_MODE_CONNECTIONS,
     STRESS_MODE_THROUGHPUT,
+    STRESS_MODE_LIVE,
 } stress_mode;
 
 typedef struct stress_config
@@ -71,6 +75,52 @@ typedef struct worker_result
     atomic_uint_fast64_t bytes_sent;
     atomic_uint_fast64_t bytes_received;
 } worker_result;
+
+static volatile sig_atomic_t live_stop = 0;
+
+static void on_live_signal(int signo)
+{
+    (void)signo;
+    live_stop = 1;
+}
+
+static const char *mode_name(stress_mode mode)
+{
+    switch (mode)
+    {
+    case STRESS_MODE_CONNECTIONS:
+        return "connections";
+    case STRESS_MODE_THROUGHPUT:
+        return "throughput";
+    case STRESS_MODE_LIVE:
+        return "live";
+    }
+    return "unknown";
+}
+
+static void print_live_instructions(const stress_config *cfg)
+{
+    fprintf(stderr,
+            "\n"
+            "  %d tunnel(s) opening. While they stay up, use the monitor in another terminal:\n"
+            "    ./bin/client -p %u\n"
+            "    AUTH <admin> <pass>\n"
+            "    STATS\n"
+            "    CONNECTIONS\n"
+            "\n",
+            cfg->clients,
+            cfg->monitor_port);
+
+    if (cfg->hold_seconds > 0)
+    {
+        fprintf(stderr, "  Holding for %d s (-k). No monitor queries from this tool.\n\n",
+                cfg->hold_seconds);
+    }
+    else
+    {
+        fprintf(stderr, "  Press Ctrl+C here to close all tunnels and print the summary.\n\n");
+    }
+}
 
 /* ------------------------------------------------------------------------- */
 /* Utilidades de I/O bloqueante                                              */
@@ -145,8 +195,8 @@ static void usage(const char *program)
             "  -d <host:port>  destination behind proxy (required)\n"
             "  -n <count>      number of concurrent clients (default 10)\n"
             "  -b <bytes>      bytes to send per client in throughput mode (default 65536)\n"
-            "  -k <seconds>    hold connections open after handshake (connections mode)\n"
-            "  -M <mode>       connections | throughput (default connections)\n"
+            "  -k <seconds>    hold tunnels after connect (live: 0 = until Ctrl+C)\n"
+            "  -M <mode>       connections | throughput | live (default connections)\n"
             "  -m <port>       monitor port for STATS (default 8080)\n"
             "  -A <user:pass>  monitor admin credentials (enables STATS query)\n"
             "  -q              query monitor STATS before and after the run\n"
@@ -502,9 +552,23 @@ static void run_single_client(const stress_config *cfg, worker_result *result)
         return;
     }
 
-    if (cfg->mode == STRESS_MODE_CONNECTIONS)
+    if (cfg->mode == STRESS_MODE_CONNECTIONS || cfg->mode == STRESS_MODE_LIVE)
     {
-        if (cfg->hold_seconds > 0)
+        if (cfg->mode == STRESS_MODE_LIVE)
+        {
+            if (cfg->hold_seconds > 0)
+            {
+                sleep((unsigned)cfg->hold_seconds);
+            }
+            else
+            {
+                while (!live_stop)
+                {
+                    sleep(1);
+                }
+            }
+        }
+        else if (cfg->hold_seconds > 0)
         {
             sleep((unsigned)cfg->hold_seconds);
         }
@@ -546,7 +610,10 @@ static void *worker_thread(void *arg)
     return NULL;
 }
 
-static int run_stress(const stress_config *cfg, worker_result *result)
+static int run_stress_spawn(const stress_config *cfg,
+                            worker_result *result,
+                            pthread_t *threads,
+                            int *spawned_out)
 {
     const int clients = cfg->clients;
     if (clients <= 0)
@@ -558,7 +625,6 @@ static int run_stress(const stress_config *cfg, worker_result *result)
     const int base = clients / thread_count;
     const int extra = clients % thread_count;
 
-    pthread_t threads[64];
     int spawned = 0;
 
     for (int i = 0; i < thread_count; i++)
@@ -566,7 +632,7 @@ static int run_stress(const stress_config *cfg, worker_result *result)
         worker_args *args = malloc(sizeof(*args));
         if (args == NULL)
         {
-            return -1;
+            break;
         }
 
         args->cfg = cfg;
@@ -582,12 +648,35 @@ static int run_stress(const stress_config *cfg, worker_result *result)
         spawned++;
     }
 
+    *spawned_out = spawned;
+    return spawned == thread_count ? 0 : -1;
+}
+
+static void run_stress_join(pthread_t *threads, int spawned)
+{
     for (int i = 0; i < spawned; i++)
     {
         pthread_join(threads[i], NULL);
     }
+}
 
-    return spawned == thread_count ? 0 : -1;
+static int run_stress(const stress_config *cfg, worker_result *result)
+{
+    pthread_t threads[64];
+    int spawned = 0;
+
+    const int rc = run_stress_spawn(cfg, result, threads, &spawned);
+
+    if (cfg->mode == STRESS_MODE_LIVE && cfg->hold_seconds == 0)
+    {
+        while (!live_stop)
+        {
+            sleep(1);
+        }
+    }
+
+    run_stress_join(threads, spawned);
+    return rc;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -714,6 +803,10 @@ int main(int argc, char **argv)
         {
             cfg.mode = STRESS_MODE_THROUGHPUT;
         }
+        else if (strcmp(mode, "live") == 0)
+        {
+            cfg.mode = STRESS_MODE_LIVE;
+        }
         else
         {
             usage(argv[0]);
@@ -751,6 +844,22 @@ int main(int argc, char **argv)
         cfg.query_monitor = true;
     }
 
+    if (cfg.mode == STRESS_MODE_LIVE)
+    {
+        cfg.query_monitor = false;
+        if (has_flag('q'))
+        {
+            fprintf(stderr, "note: -q ignored in live mode; use ./bin/client for monitor\n");
+        }
+        if (!has_flag('k'))
+        {
+            cfg.hold_seconds = 0;
+        }
+        live_stop = 0;
+        signal(SIGINT, on_live_signal);
+        print_live_instructions(&cfg);
+    }
+
     monitor_metrics before = {0};
     monitor_metrics after = {0};
 
@@ -777,7 +886,7 @@ int main(int argc, char **argv)
     const uint64_t recv = atomic_load(&result.bytes_received);
 
     printf("mode=%s clients=%d elapsed=%.3fs successes=%d failures=%d\n",
-           cfg.mode == STRESS_MODE_CONNECTIONS ? "connections" : "throughput",
+           mode_name(cfg.mode),
            cfg.clients,
            elapsed,
            ok,
