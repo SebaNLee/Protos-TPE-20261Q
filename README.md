@@ -57,7 +57,7 @@ make clean test check
 ./build/<test>
 
 # Run server (check port mapping on docker-compose.yaml)
-./bin/server
+./bin/server -u user:user -a admin:admin
 
 # Run client
 ./bin/client
