@@ -186,7 +186,6 @@ int main(int argc, char **argv)
     // REPL main loop
     while (true)
     {
-        printf("monitor$ ");
         fflush(stdout);
 
         char input[LINE_BUF_SIZE];
