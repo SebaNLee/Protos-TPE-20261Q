@@ -6,7 +6,7 @@
 #include "monitor_test_util.h"
 
 /*
- * monitor_commands_test.c — tests unitarios del protocolo ChugusMonitor.
+ * monitor_commands_test.c — tests unitarios del protocolo ChungusMonitor.
  *
  * Suites: greeting, auth (STM), CRLF/partial lines, pipelining, comandos CRUD,
  * CONFIG, ACCESS_LOG, HELP, QUIT, EOF sin '\n' final.

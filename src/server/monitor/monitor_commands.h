@@ -2,7 +2,7 @@
 #define MONITOR_COMMANDS_H
 
 /*
- * monitor_commands.h — parseo y ejecución de comandos ChugusMonitor.
+ * monitor_commands.h — parseo y ejecución de comandos ChungusMonitor.
  * Sin sockets: recibe bytes, arma líneas y escribe respuestas en wb.
  */
 
@@ -14,7 +14,7 @@
 #include "server/monitor/store.h"
 #include "shared/buffer.h"
 
-#define MONITOR_COMMANDS_GREETING "+OK ChugusMonitor v1.0\n"
+#define MONITOR_COMMANDS_GREETING "+OK ChungusMonitor v1.0\n"
 
 /*
  * Estados de autenticación por sesión admin.

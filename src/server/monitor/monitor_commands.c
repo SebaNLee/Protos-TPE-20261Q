@@ -6,7 +6,7 @@
 #include <string.h>
 
 /*
- * monitor_commands.c — comandos del protocolo ChugusMonitor.
+ * monitor_commands.c — comandos del protocolo ChungusMonitor.
  *
  * Formato: texto línea a línea, termina con '\n' (acepta '\r\n').
  * monitor.c lee del socket → feed(); las respuestas van a wb.

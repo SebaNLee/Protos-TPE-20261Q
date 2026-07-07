@@ -14,7 +14,7 @@
  * client/main.c — REPL de monitoreo del proxy.
  *
  * Se conecta al puerto de monitoreo (-p, default 8080) y permite
- * ejecutar comandos del protocolo ChugusMonitor a modo REPL.
+ * ejecutar comandos del protocolo ChungusMonitor a modo REPL.
  */
 
 #define LINE_BUF_SIZE 4096

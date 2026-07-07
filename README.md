@@ -85,7 +85,7 @@ docker compose down
 Auth:
 
 ```
-+OK ChugusMonitor v1.0
++OK ChungusMonitor v1.0
 AUTH admin admin
 ```
 
