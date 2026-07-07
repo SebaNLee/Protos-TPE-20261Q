@@ -261,7 +261,8 @@ static void handle_users(struct monitor_commands_session *session)
 
 /*
  * Valida rangos en la capa protocolo; store_config_set repite límites en el store.
- * Params: timeout (0..86400), max_connections (1..65535), io_buffer_size (1024..65536).
+ * Params: timeout (0..86400), max_connections/sessions_cap (STORE_SESSIONS_CAP_MIN..STORE_SESSIONS_CAP_MAX),
+ *         io_buffer_size (1024..65536).
  */
 static void handle_config(struct monitor_commands_session *session, monitor_cmd *cmd)
 {
@@ -293,7 +294,7 @@ static void handle_config(struct monitor_commands_session *session, monitor_cmd 
         return;
     }
     if (strcmp(cmd->args[1], "max_connections") == 0 &&
-        (value < 1 || value > 65535))
+        (value < (long)STORE_SESSIONS_CAP_MIN || value > (long)STORE_SESSIONS_CAP_MAX))
     {
         commands_wb_append(session, "-ERR invalid value\n");
         return;
@@ -457,8 +458,8 @@ static void handle_help(struct monitor_commands_session *session, monitor_cmd *c
          "bytes_up bytes_down)"},
         {"USERS", "USERS — list all registered users with their roles"},
         {"CONFIG",
-         "CONFIG param value — change runtime setting (timeout, max_connections, "
-         "io_buffer_size for new SOCKS sessions)"},
+         "CONFIG param value — change runtime setting (timeout, max_connections "
+         "up to 65535, io_buffer_size for new SOCKS sessions)"},
         {"ACCESS_LOG",
          "ACCESS_LOG [username] — show connection audit trail, optionally filtered "
          "by user"},

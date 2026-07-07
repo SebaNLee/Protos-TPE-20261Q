@@ -28,8 +28,8 @@ START_TEST(test_config_defaults)
 
     ck_assert(store_config_get(store, STORE_CFG_TIMEOUT, &val));
     ck_assert_uint_eq(0, val);
-    ck_assert(store_config_get(store, STORE_CFG_MAX_CONNECTIONS, &val));
-    ck_assert_uint_eq(1024, val);
+    ck_assert(store_config_get(store, STORE_CFG_SESSIONS_CAP, &val));
+    ck_assert_uint_eq(STORE_SESSIONS_CAP_DEFAULT, val);
     ck_assert(store_config_get(store, STORE_CFG_IO_BUFFER_SIZE, &val));
     ck_assert_uint_eq(4096, val);
 
@@ -176,7 +176,7 @@ START_TEST(test_config_key_names)
     ck_assert(store_config_key_from_name("timeout", &key));
     ck_assert_int_eq(STORE_CFG_TIMEOUT, key);
     ck_assert(store_config_key_from_name("max_connections", &key));
-    ck_assert_int_eq(STORE_CFG_MAX_CONNECTIONS, key);
+    ck_assert_int_eq(STORE_CFG_SESSIONS_CAP, key);
     ck_assert(store_config_key_from_name("io_buffer_size", &key));
     ck_assert_int_eq(STORE_CFG_IO_BUFFER_SIZE, key);
     ck_assert(!store_config_key_from_name("bogus", &key));
@@ -192,13 +192,14 @@ START_TEST(test_config_set_valid)
     ck_assert(store_config_get(store, STORE_CFG_TIMEOUT, &val));
     ck_assert_uint_eq(86400, val);
 
-    ck_assert_int_eq(STORE_CFG_OK, store_config_set(store, STORE_CFG_MAX_CONNECTIONS, 1));
-    ck_assert(store_config_get(store, STORE_CFG_MAX_CONNECTIONS, &val));
+    ck_assert_int_eq(STORE_CFG_OK, store_config_set(store, STORE_CFG_SESSIONS_CAP, 1));
+    ck_assert(store_config_get(store, STORE_CFG_SESSIONS_CAP, &val));
     ck_assert_uint_eq(1, val);
 
-    ck_assert_int_eq(STORE_CFG_OK, store_config_set(store, STORE_CFG_MAX_CONNECTIONS, 65535));
-    ck_assert(store_config_get(store, STORE_CFG_MAX_CONNECTIONS, &val));
-    ck_assert_uint_eq(65535, val);
+    ck_assert_int_eq(STORE_CFG_OK,
+                     store_config_set(store, STORE_CFG_SESSIONS_CAP, STORE_SESSIONS_CAP_MAX));
+    ck_assert(store_config_get(store, STORE_CFG_SESSIONS_CAP, &val));
+    ck_assert_uint_eq(STORE_SESSIONS_CAP_MAX, val);
 
     ck_assert_int_eq(STORE_CFG_OK, store_config_set(store, STORE_CFG_IO_BUFFER_SIZE, 1024));
     ck_assert(store_config_get(store, STORE_CFG_IO_BUFFER_SIZE, &val));
@@ -219,9 +220,9 @@ START_TEST(test_config_set_invalid)
     ck_assert_int_eq(STORE_CFG_INVALID_VALUE,
                      store_config_set(store, STORE_CFG_TIMEOUT, 86401));
     ck_assert_int_eq(STORE_CFG_INVALID_VALUE,
-                     store_config_set(store, STORE_CFG_MAX_CONNECTIONS, 0));
+                     store_config_set(store, STORE_CFG_SESSIONS_CAP, 0));
     ck_assert_int_eq(STORE_CFG_INVALID_VALUE,
-                     store_config_set(store, STORE_CFG_MAX_CONNECTIONS, 65536));
+                     store_config_set(store, STORE_CFG_SESSIONS_CAP, STORE_SESSIONS_CAP_MAX + 1));
     ck_assert_int_eq(STORE_CFG_INVALID_VALUE,
                      store_config_set(store, STORE_CFG_IO_BUFFER_SIZE, 512));
     ck_assert_int_eq(STORE_CFG_INVALID_VALUE,
@@ -268,16 +269,58 @@ START_TEST(test_bytes_metrics)
 }
 END_TEST
 
-START_TEST(test_max_connections_cap)
+START_TEST(test_sessions_cap_limit)
 {
     struct monitor_store *store = store_create();
-    store_config_set(store, STORE_CFG_MAX_CONNECTIONS, 1);
+    store_config_set(store, STORE_CFG_SESSIONS_CAP, 1);
 
     const store_session_id a = store_session_begin(store);
     ck_assert(a != STORE_SESSION_INVALID);
     ck_assert_int_eq(STORE_SESSION_INVALID, store_session_begin(store));
 
     store_session_end(store, a);
+    store_destroy(store);
+}
+END_TEST
+
+START_TEST(test_sessions_cap_grow_slots)
+{
+    struct monitor_store *store = store_create();
+    store_session_id ids[1500];
+
+    const uint32_t new_sessions_cap = 1500u;
+    ck_assert_int_eq(STORE_CFG_OK,
+                     store_config_set(store, STORE_CFG_SESSIONS_CAP, new_sessions_cap));
+
+    for (size_t i = 0; i < new_sessions_cap; i++)
+    {
+        ids[i] = store_session_begin(store);
+        ck_assert(ids[i] != STORE_SESSION_INVALID);
+    }
+    ck_assert_int_eq(STORE_SESSION_INVALID, store_session_begin(store));
+
+    for (size_t i = 0; i < new_sessions_cap; i++)
+    {
+        store_session_end(store, ids[i]);
+    }
+    store_destroy(store);
+}
+END_TEST
+
+START_TEST(test_sessions_cap_lower_below_active)
+{
+    struct monitor_store *store = store_create();
+
+    const store_session_id a = store_session_begin(store);
+    const store_session_id b = store_session_begin(store);
+    ck_assert(a != STORE_SESSION_INVALID);
+    ck_assert(b != STORE_SESSION_INVALID);
+
+    ck_assert_int_eq(STORE_CFG_INVALID_VALUE,
+                     store_config_set(store, STORE_CFG_SESSIONS_CAP, 1));
+
+    store_session_end(store, a);
+    store_session_end(store, b);
     store_destroy(store);
 }
 END_TEST
@@ -481,7 +524,9 @@ Suite *monitor_store_suite(void)
     tcase_add_test(tc, test_config_set_invalid);
     tcase_add_test(tc, test_session_metrics);
     tcase_add_test(tc, test_bytes_metrics);
-    tcase_add_test(tc, test_max_connections_cap);
+    tcase_add_test(tc, test_sessions_cap_limit);
+    tcase_add_test(tc, test_sessions_cap_grow_slots);
+    tcase_add_test(tc, test_sessions_cap_lower_below_active);
     tcase_add_test(tc, test_connections_list);
     tcase_add_test(tc, test_session_phases);
     tcase_add_test(tc, test_session_failed);

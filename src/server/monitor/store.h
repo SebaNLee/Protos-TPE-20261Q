@@ -30,6 +30,11 @@
 #define STORE_LOG_CAPACITY 4096
 #define STORE_MAX_DEST_HOST 255
 
+/* CONFIG sessions_cap (wire name: max_connections): límite de sesiones SOCKS simultáneas. */
+#define STORE_SESSIONS_CAP_MIN 1u
+#define STORE_SESSIONS_CAP_MAX 65535u
+#define STORE_SESSIONS_CAP_DEFAULT 1024u
+
 typedef enum
 {
     STORE_ROLE_USER,  /* solo puede usar el proxy SOCKS */
@@ -55,7 +60,7 @@ typedef enum
 typedef enum
 {
     STORE_CFG_TIMEOUT,         /* segundos de inactividad */
-    STORE_CFG_MAX_CONNECTIONS, /* tope de clientes SOCKS simultáneos */
+    STORE_CFG_SESSIONS_CAP,    /* tope de clientes SOCKS simultáneos (CONFIG max_connections) */
     STORE_CFG_IO_BUFFER_SIZE,  /* tamaño de buffer para sesiones nuevas */
 } store_config_key;
 

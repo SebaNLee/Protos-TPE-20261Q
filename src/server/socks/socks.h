@@ -81,7 +81,7 @@ struct socks_session
     struct sockaddr_storage dest_addr;
     socklen_t dest_addr_len;
 
-    /* Integración con store: métricas, access log, max_connections */
+    /* Integración con store: métricas, access log, sessions_cap */
     store_session_id store_id;
     time_t last_activity; /* para CONFIG timeout (idle) */
     bool dest_recorded;

@@ -40,11 +40,11 @@ struct monitor_store
     store_log_id next_log_id;
 
     uint32_t timeout;
-    uint32_t max_connections;
+    uint32_t sessions_cap;
     uint32_t io_buffer_size;
 
     struct store_session_node *sessions;
-    size_t sessions_cap;
+    size_t sessions_slots;
     store_session_id next_session_id;
 };
 
@@ -67,7 +67,7 @@ static struct store_session_node *store_find_session(struct monitor_store *store
         return NULL;
     }
 
-    for (size_t i = 0; i < store->sessions_cap; i++)
+    for (size_t i = 0; i < store->sessions_slots; i++)
     {
         if (store->sessions[i].active && store->sessions[i].info.id == id)
         {
@@ -166,13 +166,13 @@ struct monitor_store *store_create(void)
     }
 
     store->timeout = 0;
-    store->max_connections = 1024;
+    store->sessions_cap = STORE_SESSIONS_CAP_DEFAULT;
     store->io_buffer_size = 4096;
     store->next_log_id = 1;
     store->next_session_id = 1;
 
-    store->sessions_cap = store->max_connections;
-    store->sessions = calloc(store->sessions_cap, sizeof(*store->sessions));
+    store->sessions_slots = (size_t)store->sessions_cap;
+    store->sessions = calloc(store->sessions_slots, sizeof(*store->sessions));
     if (store->sessions == NULL)
     {
         free(store);
@@ -367,6 +367,35 @@ store_user_result store_user_set_password(struct monitor_store *store,
  * Configuración en runtime
  * ========================================================================== */
 
+/*
+ * Aumenta sessions_slots hasta new_sessions_slots cuando CONFIG sube sessions_cap.
+ * Invariante tras éxito: sessions_slots >= sessions_cap.
+ */
+static store_config_result store_grow_sessions_slots(struct monitor_store *store,
+                                                     size_t new_sessions_slots)
+{
+    if (store == NULL || new_sessions_slots <= store->sessions_slots)
+    {
+        return STORE_CFG_OK;
+    }
+
+    struct store_session_node *resized_sessions =
+        realloc(store->sessions, new_sessions_slots * sizeof(*resized_sessions));
+    if (resized_sessions == NULL)
+    {
+        return STORE_CFG_INVALID_VALUE;
+    }
+
+    const size_t old_sessions_slots = store->sessions_slots;
+    memset(resized_sessions + old_sessions_slots,
+           0,
+           (new_sessions_slots - old_sessions_slots) * sizeof(*resized_sessions));
+
+    store->sessions = resized_sessions;
+    store->sessions_slots = new_sessions_slots;
+    return STORE_CFG_OK;
+}
+
 /* Lee un parámetro de config runtime por clave enum. */
 bool store_config_get(const struct monitor_store *store,
                       store_config_key key,
@@ -382,8 +411,8 @@ bool store_config_get(const struct monitor_store *store,
     case STORE_CFG_TIMEOUT:
         *out_value = store->timeout;
         return true;
-    case STORE_CFG_MAX_CONNECTIONS:
-        *out_value = store->max_connections;
+    case STORE_CFG_SESSIONS_CAP:
+        *out_value = store->sessions_cap;
         return true;
     case STORE_CFG_IO_BUFFER_SIZE:
         *out_value = store->io_buffer_size;
@@ -412,14 +441,38 @@ store_config_result store_config_set(struct monitor_store *store,
         }
         store->timeout = value;
         return STORE_CFG_OK;
-    case STORE_CFG_MAX_CONNECTIONS:
-        if (value < 1 || value > 65535)
+    case STORE_CFG_SESSIONS_CAP:
+    {
+        const uint32_t sessions_cap_min = STORE_SESSIONS_CAP_MIN;
+        const uint32_t sessions_cap_max = STORE_SESSIONS_CAP_MAX;
+
+        if (value < sessions_cap_min || value > sessions_cap_max)
         {
             return STORE_CFG_INVALID_VALUE;
         }
-        /* Actualiza el tope; sessions_cap no se redimensiona en caliente */
-        store->max_connections = value;
+
+        /* No bajar sessions_cap por debajo de las sesiones SOCKS ya abiertas. */
+        if (value < store->metrics.concurrent_connections)
+        {
+            return STORE_CFG_INVALID_VALUE;
+        }
+
+        const uint32_t new_sessions_cap = value;
+
+        if (new_sessions_cap > store->sessions_cap)
+        {
+            const size_t new_sessions_slots = (size_t)new_sessions_cap;
+            const store_config_result grow =
+                store_grow_sessions_slots(store, new_sessions_slots);
+            if (grow != STORE_CFG_OK)
+            {
+                return grow;
+            }
+        }
+
+        store->sessions_cap = new_sessions_cap;
         return STORE_CFG_OK;
+    }
     case STORE_CFG_IO_BUFFER_SIZE:
         if (value < 1024 || value > 65536)
         {
@@ -447,7 +500,7 @@ bool store_config_key_from_name(const char *param, store_config_key *out_key)
     }
     if (strcmp(param, "max_connections") == 0)
     {
-        *out_key = STORE_CFG_MAX_CONNECTIONS;
+        *out_key = STORE_CFG_SESSIONS_CAP;
         return true;
     }
     if (strcmp(param, "io_buffer_size") == 0)
@@ -482,12 +535,13 @@ store_session_id store_session_begin(struct monitor_store *store)
         return STORE_SESSION_INVALID;
     }
 
-    if (store->metrics.concurrent_connections >= store->max_connections)
+    if (store->metrics.concurrent_connections >= store->sessions_cap)
     {
         return STORE_SESSION_INVALID;
     }
 
-    for (size_t i = 0; i < store->sessions_cap; i++)
+    /* sessions_slots >= sessions_cap (store_config_set mantiene el invariante). */
+    for (size_t i = 0; i < store->sessions_slots; i++)
     {
         if (!store->sessions[i].active)
         {
@@ -658,7 +712,7 @@ void store_sessions_foreach(const struct monitor_store *store,
         return;
     }
 
-    for (size_t i = 0; i < store->sessions_cap; i++)
+    for (size_t i = 0; i < store->sessions_slots; i++)
     {
         if (store->sessions[i].active &&
             !fn(&store->sessions[i].info, ctx))

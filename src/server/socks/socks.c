@@ -1263,7 +1263,7 @@ static void socks_passive_read(struct selector_key *key)
             continue;
         }
 
-        /* CONFIG max_connections: si el store no tiene cupo, rechazamos el accept */
+        /* CONFIG sessions_cap: si el store no tiene cupo, rechazamos el accept */
         store_session_id store_id = STORE_SESSION_INVALID;
         if (srv->store != NULL)
         {
