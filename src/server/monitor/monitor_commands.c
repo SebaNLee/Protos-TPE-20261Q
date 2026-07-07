@@ -6,7 +6,7 @@
 #include <string.h>
 
 /*
- * monitor_commands.c — comandos del protocolo Proxy/1.0.
+ * monitor_commands.c — comandos del protocolo ChungusMonitor.
  *
  * Formato: texto línea a línea, termina con '\n' (acepta '\r\n').
  * monitor.c lee del socket → feed(); las respuestas van a wb.
@@ -74,10 +74,11 @@ void monitor_commands_session_init(struct monitor_commands_session *session,
     buffer_init(&session->wb, MONITOR_BUFFER_SIZE, session->wb_backing);
 }
 
-/* Encola el greeting Proxy/1.0 en wb (primera respuesta al conectar). */
+/* Encola el greeting en wb (primera respuesta al conectar). */
 void monitor_commands_queue_greeting(struct monitor_commands_session *session)
 {
     commands_wb_append(session, MONITOR_COMMANDS_GREETING);
+    commands_wb_append(session, ".\n");
 }
 
 /* Lee hasta max bytes de wb para enviar al socket (write parcial). */
@@ -122,7 +123,7 @@ static void split_line(monitor_cmd *cmd, char *line)
 }
 
 /* ==========================================================================
- * Handlers de comandos Proxy/1.0
+ * Handlers de comandos ChungusMonitor
  * ========================================================================== */
 
 /* AUTH: valida admin contra store y pasa a MONITOR_ST_AUTHENTICATED. */
@@ -224,41 +225,44 @@ typedef struct
     struct monitor_commands_session *session;
 } user_ctx;
 
-/* Callback: emite una línea +OK por username único conectado. */
-static bool append_user(const char *username, void *ctx)
+/* Callback: emite una línea +OK por usuario registrado. */
+static bool append_user(const char *username, store_role role, void *ctx)
 {
     user_ctx *uctx = ctx;
-    commands_wb_appendf(uctx->session, "+OK %s\n", username);
+    const char *role_str = role == STORE_ROLE_ADMIN ? "admin" : "user";
+    commands_wb_appendf(uctx->session, "+OK %s (%s)\n", username, role_str);
     return true;
 }
 
-/* Callback: marca que hay al menos un usuario conectado. */
-static bool count_user(const char *username, void *ctx)
+/* Callback: marca que hay al menos un usuario registrado. */
+static bool count_user(const char *username, store_role role, void *ctx)
 {
     (void)username;
+    (void)role;
     *(bool *)ctx = true;
     return true;
 }
 
-/* Dos pasadas: si no hay usuarios conectados → +OK\n; si hay → una línea por usuario */
+/* Lista todos los usuarios registrados con su rol. */
 static void handle_users(struct monitor_commands_session *session)
 {
     user_ctx ctx = {.session = session};
     bool any = false;
 
-    store_active_usernames_foreach(session->store, count_user, &any);
+    store_users_foreach(session->store, count_user, &any);
     if (!any)
     {
         commands_wb_append(session, "+OK\n");
         return;
     }
 
-    store_active_usernames_foreach(session->store, append_user, &ctx);
+    store_users_foreach(session->store, append_user, &ctx);
 }
 
 /*
  * Valida rangos en la capa protocolo; store_config_set repite límites en el store.
- * Params: timeout (0..86400), max_connections (1..65535), io_buffer_size (1024..65536).
+ * Params: timeout (0..86400), max_connections/sessions_cap (STORE_SESSIONS_CAP_MIN..STORE_SESSIONS_CAP_MAX),
+ *         io_buffer_size (1024..65536).
  */
 static void handle_config(struct monitor_commands_session *session, monitor_cmd *cmd)
 {
@@ -290,7 +294,7 @@ static void handle_config(struct monitor_commands_session *session, monitor_cmd 
         return;
     }
     if (strcmp(cmd->args[1], "max_connections") == 0 &&
-        (value < 1 || value > 65535))
+        (value < (long)STORE_SESSIONS_CAP_MIN || value > (long)STORE_SESSIONS_CAP_MAX))
     {
         commands_wb_append(session, "-ERR invalid value\n");
         return;
@@ -452,10 +456,10 @@ static void handle_help(struct monitor_commands_session *session, monitor_cmd *c
         {"CONNECTIONS",
          "CONNECTIONS — list active SOCKS sessions (username host:port phase "
          "bytes_up bytes_down)"},
-        {"USERS", "USERS — list usernames with active SOCKS connections"},
+        {"USERS", "USERS — list all registered users with their roles"},
         {"CONFIG",
-         "CONFIG param value — change runtime setting (timeout, max_connections, "
-         "io_buffer_size)"},
+         "CONFIG param value — change runtime setting (timeout, max_connections "
+         "up to 65535, io_buffer_size for new SOCKS sessions)"},
         {"ACCESS_LOG",
          "ACCESS_LOG [username] — show connection audit trail, optionally filtered "
          "by user"},
@@ -472,15 +476,15 @@ static void handle_help(struct monitor_commands_session *session, monitor_cmd *c
     if (cmd->argc == 1)
     {
         commands_wb_append(session, "+OK Available commands:\n");
-        commands_wb_append(session, "+OK AUTH username password\n");
+        commands_wb_append(session, "+OK AUTH <username> <password>\n");
         commands_wb_append(session, "+OK STATS\n");
         commands_wb_append(session, "+OK CONNECTIONS\n");
         commands_wb_append(session, "+OK USERS\n");
-        commands_wb_append(session, "+OK CONFIG param value\n");
+        commands_wb_append(session, "+OK CONFIG <param> <value>\n");
         commands_wb_append(session, "+OK ACCESS_LOG [username]\n");
-        commands_wb_append(session, "+OK ADD_USER username password [admin]\n");
-        commands_wb_append(session, "+OK DEL_USER username\n");
-        commands_wb_append(session, "+OK SET_PASSWORD username newpassword\n");
+        commands_wb_append(session, "+OK ADD_USER <username> <password> [admin]\n");
+        commands_wb_append(session, "+OK DEL_USER <username>\n");
+        commands_wb_append(session, "+OK SET_PASSWORD <username> <newpassword>\n");
         commands_wb_append(session, "+OK HELP [command]\n");
         commands_wb_append(session, "+OK QUIT\n");
         return;
@@ -507,7 +511,10 @@ static void handle_quit(struct monitor_commands_session *session)
 
 /*
  * Puerta de auth y router de comandos.
- * AWAIT_AUTH: AUTH y HELP; AUTHENTICATED: resto (AUTH repetido → error).
+ *   AWAIT_AUTH: AUTH, HELP habilitados, resto -ERR not authenticated
+ *   AUTHENTICATED: todos los comandos, excepto AUTH repetido (error)
+ *
+ * Toda respuesta termina con ".\n" para delimitar fin en el REPL cliente.
  */
 static void dispatch_line(struct monitor_commands_session *session, char *line)
 {
@@ -534,12 +541,17 @@ static void dispatch_line(struct monitor_commands_session *session, char *line)
         {
             commands_wb_append(session, "-ERR not authenticated\n");
         }
+
+        commands_wb_append(session, ".\n");
+
         return;
     }
 
     if (strcmp(cmd.cmd, "AUTH") == 0)
     {
         commands_wb_append(session, "-ERR already authenticated\n");
+        commands_wb_append(session, ".\n");
+
         return;
     }
     if (strcmp(cmd.cmd, "STATS") == 0)
@@ -586,6 +598,8 @@ static void dispatch_line(struct monitor_commands_session *session, char *line)
     {
         commands_wb_append(session, "-ERR unknown command\n");
     }
+
+    commands_wb_append(session, ".\n");
 }
 
 /* ==========================================================================
@@ -602,6 +616,7 @@ static void process_byte(struct monitor_commands_session *session, char ch)
     {
         session->line_len = 0;
         commands_wb_append(session, "-ERR line too long\n");
+        commands_wb_append(session, ".\n");
         return;
     }
 

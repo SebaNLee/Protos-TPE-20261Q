@@ -6,7 +6,7 @@
 #include "monitor_test_util.h"
 
 /*
- * monitor_commands_test.c — tests unitarios del protocolo Proxy/1.0.
+ * monitor_commands_test.c — tests unitarios del protocolo ChungusMonitor.
  *
  * Suites: greeting, auth (STM), CRLF/partial lines, pipelining, comandos CRUD,
  * CONFIG, ACCESS_LOG, HELP, QUIT, EOF sin '\n' final.
@@ -27,7 +27,7 @@ START_TEST(test_greeting)
 
     monitor_commands_queue_greeting(&proto);
     mt_drain_all(&proto, out, sizeof(out));
-    ck_assert_str_eq(MONITOR_COMMANDS_GREETING, out);
+    ck_assert_str_eq(MONITOR_COMMANDS_GREETING ".\n", out);
 
     store_destroy(store);
 }
@@ -60,7 +60,7 @@ START_TEST(test_empty_line)
     monitor_commands_queue_greeting(&proto);
     mt_feed(&proto, "\n");
     mt_drain_all(&proto, out, sizeof(out));
-    ck_assert_str_eq(MONITOR_COMMANDS_GREETING, out);
+    ck_assert_str_eq(MONITOR_COMMANDS_GREETING ".\n", out);
 
     store_destroy(store);
 }
@@ -280,6 +280,22 @@ START_TEST(test_users_empty)
     mt_auth_admin(&proto);
     mt_feed(&proto, "USERS\n");
     mt_drain_all(&proto, out, sizeof(out));
+    mt_assert_has(out, "+OK admin (admin)\n");
+
+    store_destroy(store);
+}
+END_TEST
+
+START_TEST(test_users_no_registered)
+{
+    struct monitor_store *store = store_create();
+    struct monitor_commands_session proto;
+    char out[MT_DRAIN_SIZE];
+
+    monitor_commands_session_init(&proto, store);
+    proto.state = MONITOR_ST_AUTHENTICATED;
+    mt_feed(&proto, "USERS\n");
+    mt_drain_all(&proto, out, sizeof(out));
     mt_assert_has(out, "+OK\n");
 
     store_destroy(store);
@@ -293,11 +309,12 @@ START_TEST(test_users_active)
     setup_commands(&proto, store);
     char out[MT_DRAIN_SIZE];
 
-    mt_sim_session(store, "bob", "x.com", 80, 0, 0, false);
+    store_user_add(store, "bob", "pass", false);
     mt_auth_admin(&proto);
     mt_feed(&proto, "USERS\n");
     mt_drain_all(&proto, out, sizeof(out));
-    mt_assert_has(out, "+OK bob\n");
+    mt_assert_has(out, "+OK admin (admin)\n");
+    mt_assert_has(out, "+OK bob (user)\n");
 
     store_destroy(store);
 }
@@ -519,7 +536,7 @@ START_TEST(test_help_before_auth)
     mt_feed(&proto, "HELP\n");
     mt_drain_all(&proto, out, sizeof(out));
     mt_assert_has(out, "Available commands:");
-    mt_assert_has(out, "AUTH username password");
+    mt_assert_has(out, "AUTH <username> <password>");
     ck_assert_int_eq(MONITOR_ST_AWAIT_AUTH, proto.state);
 
     store_destroy(store);
@@ -583,7 +600,7 @@ START_TEST(test_help_users)
 
     mt_feed(&proto, "HELP USERS\n");
     mt_drain_all(&proto, out, sizeof(out));
-    mt_assert_has(out, "USERS — list usernames with active SOCKS connections");
+    mt_assert_has(out, "USERS — list all registered users with their roles");
 
     store_destroy(store);
 }
@@ -678,6 +695,7 @@ Suite *monitor_commands_suite(void)
     tcase_add_test(tc, test_connections_empty);
     tcase_add_test(tc, test_connections_active);
     tcase_add_test(tc, test_users_empty);
+    tcase_add_test(tc, test_users_no_registered);
     tcase_add_test(tc, test_users_active);
     tcase_add_test(tc, test_config_ok);
     tcase_add_test(tc, test_config_unknown);

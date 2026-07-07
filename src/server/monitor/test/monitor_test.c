@@ -228,6 +228,13 @@ static void stop_server(pid_t pid, int stop_pipe_w)
     ck_assert_int_eq(0, WEXITSTATUS(status));
 }
 
+static void assert_response_dot(int fd)
+{
+    char line[256];
+    ck_assert_int_gt(read_line(fd, line, sizeof(line)), 0);
+    ck_assert_str_eq(".", line);
+}
+
 START_TEST(test_tcp_greeting)
 {
     pid_t pid = 0;
@@ -239,7 +246,8 @@ START_TEST(test_tcp_greeting)
 
     char line[256];
     ck_assert_int_gt(read_line(fd, line, sizeof(line)), 0);
-    ck_assert_str_eq("+OK Hello! from Proxy/1.0", line);
+    ck_assert_str_eq("+OK ChungusMonitor v1.0", line);
+    assert_response_dot(fd);
 
     close(fd);
     stop_server(pid, stop_w);
@@ -257,14 +265,17 @@ START_TEST(test_tcp_auth_and_stats)
 
     char line[512];
     read_line(fd, line, sizeof(line));
+    assert_response_dot(fd);
 
     ck_assert_int_eq(17, write(fd, "AUTH admin admin\n", 17));
     ck_assert_int_gt(read_line(fd, line, sizeof(line)), 0);
     ck_assert_str_eq("+OK", line);
+    assert_response_dot(fd);
 
     ck_assert_int_eq(6, write(fd, "STATS\n", 6));
     ck_assert_int_gt(read_line(fd, line, sizeof(line)), 0);
     ck_assert(strstr(line, "total_connections=") != NULL);
+    assert_response_dot(fd);
 
     close(fd);
     stop_server(pid, stop_w);
@@ -283,16 +294,20 @@ START_TEST(test_tcp_pipelining)
 
     char line[512];
     read_line(fd, line, sizeof(line));
+    assert_response_dot(fd);
 
     const char *batch = "AUTH admin admin\nSTATS\nQUIT\n";
     ck_assert_int_eq((ssize_t)strlen(batch), write(fd, batch, strlen(batch)));
 
     ck_assert_int_gt(read_line(fd, line, sizeof(line)), 0);
     ck_assert_str_eq("+OK", line);
+    assert_response_dot(fd);
     ck_assert_int_gt(read_line(fd, line, sizeof(line)), 0);
     ck_assert(strstr(line, "total_connections=") != NULL);
+    assert_response_dot(fd);
     ck_assert_int_gt(read_line(fd, line, sizeof(line)), 0);
     ck_assert_str_eq("+OK", line);
+    assert_response_dot(fd);
 
     close(fd);
     stop_server(pid, stop_w);
@@ -311,6 +326,7 @@ START_TEST(test_tcp_half_close)
 
     char line[512];
     read_line(fd, line, sizeof(line));
+    assert_response_dot(fd);
 
     const char *batch = "AUTH admin admin\nSTATS\n";
     ck_assert_int_eq((ssize_t)strlen(batch), write(fd, batch, strlen(batch)));
@@ -337,24 +353,29 @@ START_TEST(test_tcp_add_user)
 
     char line[512];
     read_line(fd, line, sizeof(line));
+    assert_response_dot(fd);
 
     const char *setup = "AUTH admin admin\nADD_USER cliuser clipass\n";
     ck_assert_int_eq((ssize_t)strlen(setup), write(fd, setup, strlen(setup)));
 
     read_line(fd, line, sizeof(line));
     ck_assert_str_eq("+OK", line);
+    assert_response_dot(fd);
     read_line(fd, line, sizeof(line));
     ck_assert_str_eq("+OK", line);
+    assert_response_dot(fd);
     close(fd);
 
     const int fd2 = connect_server(port);
     ck_assert_int_ge(fd2, 0);
     read_line(fd2, line, sizeof(line));
+    assert_response_dot(fd2);
 
     const char *try_socks = "AUTH cliuser clipass\n";
     ck_assert_int_eq((ssize_t)strlen(try_socks), write(fd2, try_socks, strlen(try_socks)));
     read_line(fd2, line, sizeof(line));
     ck_assert_str_eq("-ERR not admin", line);
+    assert_response_dot(fd2);
 
     close(fd2);
     stop_server(pid, stop_w);

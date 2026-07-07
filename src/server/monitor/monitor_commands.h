@@ -2,7 +2,7 @@
 #define MONITOR_COMMANDS_H
 
 /*
- * monitor_commands.h — parseo y ejecución de comandos Proxy/1.0.
+ * monitor_commands.h — parseo y ejecución de comandos ChungusMonitor.
  * Sin sockets: recibe bytes, arma líneas y escribe respuestas en wb.
  */
 
@@ -14,7 +14,7 @@
 #include "server/monitor/store.h"
 #include "shared/buffer.h"
 
-#define MONITOR_COMMANDS_GREETING "+OK Hello! from Proxy/1.0\n"
+#define MONITOR_COMMANDS_GREETING "+OK ChungusMonitor v1.0\n"
 
 /*
  * Estados de autenticación por sesión admin.
@@ -47,24 +47,19 @@ struct monitor_commands_session
 };
 
 /* Resetea estado de auth, línea y buffer de salida para una sesión nueva. */
-void monitor_commands_session_init(struct monitor_commands_session *session,
-                                   struct monitor_store *store);
+void monitor_commands_session_init(struct monitor_commands_session *session, struct monitor_store *store);
 
 /* Encola el greeting automático al conectar (monitor.c lo llama en accept). */
 void monitor_commands_queue_greeting(struct monitor_commands_session *session);
 
 /* Alimenta bytes del socket; monitor.c drena rb con esta función. */
-void monitor_commands_feed(struct monitor_commands_session *session,
-                           const uint8_t *data,
-                           size_t len);
+void monitor_commands_feed(struct monitor_commands_session *session, const uint8_t *data, size_t len);
 
 /* Half-close: procesa la última línea aunque no termine en '\n'. */
 void monitor_commands_flush_on_eof(struct monitor_commands_session *session);
 
 /* Lee respuestas de wb para escribir al socket (monitor_client_write). */
-size_t monitor_commands_wb_read(struct monitor_commands_session *session,
-                                uint8_t *out,
-                                size_t max);
+size_t monitor_commands_wb_read(struct monitor_commands_session *session, uint8_t *out, size_t max);
 
 /* true tras QUIT cuando wb ya se vació (monitor.c cierra el fd). */
 bool monitor_commands_should_close(const struct monitor_commands_session *session);

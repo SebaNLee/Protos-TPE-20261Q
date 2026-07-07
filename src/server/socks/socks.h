@@ -15,7 +15,7 @@
 #include "server/socks/greeting/greeting.h"
 #include "server/socks/request/request.h"
 
-#define SOCKS_BUFFER_SIZE 4096
+#define SOCKS_BUFFER_SIZE_DEFAULT 4096
 
 /*
  * Estados de la máquina de estados por sesión.
@@ -61,8 +61,8 @@ struct socks_session
 
     buffer c2o;
     buffer o2c;
-    uint8_t c2o_backing[SOCKS_BUFFER_SIZE];
-    uint8_t o2c_backing[SOCKS_BUFFER_SIZE];
+    uint8_t *c2o_backing;
+    uint8_t *o2c_backing;
 
     struct state_machine stm;
     socks_greeting_parser greeting; /* Parser paso 2: method negotiation */
@@ -81,7 +81,7 @@ struct socks_session
     struct sockaddr_storage dest_addr;
     socklen_t dest_addr_len;
 
-    /* Integración con store: métricas, access log, max_connections */
+    /* Integración con store: métricas, access log, sessions_cap */
     store_session_id store_id;
     time_t last_activity; /* para CONFIG timeout (idle) */
     bool dest_recorded;

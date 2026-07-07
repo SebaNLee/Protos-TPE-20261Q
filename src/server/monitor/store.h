@@ -30,6 +30,11 @@
 #define STORE_LOG_CAPACITY 4096
 #define STORE_MAX_DEST_HOST 255
 
+/* CONFIG sessions_cap (wire name: max_connections): límite de sesiones SOCKS simultáneas. */
+#define STORE_SESSIONS_CAP_MIN 1u
+#define STORE_SESSIONS_CAP_MAX 65535u
+#define STORE_SESSIONS_CAP_DEFAULT 1024u
+
 typedef enum
 {
     STORE_ROLE_USER,  /* solo puede usar el proxy SOCKS */
@@ -55,7 +60,7 @@ typedef enum
 typedef enum
 {
     STORE_CFG_TIMEOUT,         /* segundos de inactividad */
-    STORE_CFG_MAX_CONNECTIONS, /* tope de clientes SOCKS simultáneos */
+    STORE_CFG_SESSIONS_CAP,    /* tope de clientes SOCKS simultáneos (CONFIG max_connections) */
     STORE_CFG_IO_BUFFER_SIZE,  /* tamaño de buffer para sesiones nuevas */
 } store_config_key;
 
@@ -199,14 +204,10 @@ void store_session_mark_failed(struct monitor_store *store, store_session_id id)
 /* Cierre normal: marca log CLOSED y libera el slot. */
 void store_session_end(struct monitor_store *store, store_session_id id);
 
-/* Iteradores usados por monitor_commands (CONNECTIONS, USERS, ACCESS_LOG). */
+/* Iteradores usados por monitor_commands (CONNECTIONS, ACCESS_LOG). */
 void store_sessions_foreach(const struct monitor_store *store,
                             bool (*fn)(const store_active_session *session, void *ctx),
                             void *ctx);
-
-void store_active_usernames_foreach(const struct monitor_store *store,
-                                    bool (*fn)(const char *username, void *ctx),
-                                    void *ctx);
 
 /* Recorre el log de más reciente a más antiguo; filter=NULL = todos. */
 void store_log_foreach(const struct monitor_store *store,
@@ -217,8 +218,12 @@ void store_log_foreach(const struct monitor_store *store,
 /* true si el username existe en la tabla de usuarios. */
 bool store_user_exists(const struct monitor_store *store, const char *username);
 
+/* Itera sobre todos los usuarios registrados, devuelve username, role, ctx */
+void store_users_foreach(const struct monitor_store *store, bool (*fn)(const char *username, store_role role, void *ctx), void *ctx);
+
 /* Devuelve etiqueta textual del estado de una entrada de log. */
 const char *store_log_state_str(store_log_state state);
+
 /* Devuelve etiqueta textual de la fase de una sesión SOCKS activa. */
 const char *store_session_phase_str(store_session_phase phase);
 

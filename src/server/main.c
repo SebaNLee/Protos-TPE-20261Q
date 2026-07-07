@@ -27,8 +27,6 @@
 
 #include "shared/flags.h"
 
-#define MAX_CLI_USERS 64 // TODO arbitrary
-
 static volatile sig_atomic_t shutdown_requested = 0;
 static volatile sig_atomic_t force_quit = 0;
 
@@ -58,10 +56,11 @@ static void install_signal_handlers(void)
 
 static void usage(const char *program)
 {
-    fprintf(stderr, "Usage: %s [-p socks_port] [-m monitor_port] -u <user>:<pass>...\n", program);
+    fprintf(stderr, "Usage: %s [-p socks_port] [-m monitor_port] -u <user>:<pass>... -a <admin>:<pass>...\n", program);
     fprintf(stderr, "  -p  SOCKS5 port (default 1080)\n");
     fprintf(stderr, "  -m  Monitor port (default 8080)\n");
-    fprintf(stderr, "  -u  Add initial user:password pair (required, repeatable)\n");
+    fprintf(stderr, "  -u  Add SOCKS user:password pair (required, repeatable)\n");
+    fprintf(stderr, "  -a  Add admin user:password pair for monitoring (required, repeatable)\n");
 }
 
 static bool servers_is_empty(struct socks_server *socks,
@@ -70,12 +69,30 @@ static bool servers_is_empty(struct socks_server *socks,
     return socks_server_is_empty(socks) && monitor_server_is_empty(monitor);
 }
 
+static bool add_flag_user(struct monitor_store *store, const char *input, bool is_admin)
+{
+    char *colon = strchr(input, ':');
+
+    if (colon == NULL || colon == input || *(colon + 1) == '\0')
+    {
+        return false;
+    }
+
+    *colon = '\0';
+    const store_user_result result =
+        store_user_add(store, input, colon + 1, is_admin);
+    *colon = ':';
+
+    // Fail if user already exists
+    return result == STORE_USER_OK;
+}
+
 int main(int argc, char **argv)
 {
     uint16_t socks_port = 1080;
     uint16_t monitor_port = 8080;
 
-    if (setup_flags(argc, argv, "p:m:hu:") != 0)
+    if (setup_flags(argc, argv, "p:m:hu:a:") != 0)
     {
         usage(argv[0]);
         return EXIT_FAILURE;
@@ -107,43 +124,7 @@ int main(int argc, char **argv)
         monitor_port = (uint16_t)value;
     }
 
-    char *cli_users[MAX_CLI_USERS];
-    char *cli_passwords[MAX_CLI_USERS];
-    size_t cli_user_count = 0;
-
-    int count_u = get_flag_count('u');
-
-    for (int i = 0; i < count_u && cli_user_count < MAX_CLI_USERS; i++)
-    {
-        char *curr = get_flag_str_nth('u', i);
-        if (curr == NULL)
-        {
-            continue;
-        }
-
-        char *colon = strchr(curr, ':');
-
-        if (colon == NULL || colon == curr || *(colon + 1) == '\0')
-        {
-            usage(curr);
-            return EXIT_FAILURE;
-        }
-
-        *colon = '\0';
-        cli_users[cli_user_count] = strdup(curr);
-        cli_passwords[cli_user_count] = strdup(colon + 1);
-        *colon = ':';
-
-        if (cli_users[cli_user_count] == NULL || cli_passwords[cli_user_count] == NULL)
-        {
-            usage(curr);
-            return EXIT_FAILURE;
-        }
-
-        cli_user_count++;
-    }
-
-    if (cli_user_count == 0)
+    if (get_flag_count('u') < 1 || get_flag_count('a') < 1)
     {
         usage(argv[0]);
         return EXIT_FAILURE;
@@ -179,14 +160,32 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    for (size_t i = 0; i < cli_user_count; i++)
+    for (int i = 0; i < get_flag_count('u'); i++)
     {
-        store_user_add(store, cli_users[i], cli_passwords[i], true);
-        free(cli_users[i]);
-        free(cli_passwords[i]);
+        if (!add_flag_user(store, get_flag_str_nth('u', i), false))
+        {
+            usage(argv[0]);
+            store_destroy(store);
+            selector_destroy(selector);
+            selector_close();
+
+            return EXIT_FAILURE;
+        }
     }
 
-    /* *stop=true hace que ambos listen sockets dejen de aceptar (graceful shutdown) */
+    for (int i = 0; i < get_flag_count('a'); i++)
+    {
+        if (!add_flag_user(store, get_flag_str_nth('a', i), true))
+        {
+            usage(argv[0]);
+            store_destroy(store);
+            selector_destroy(selector);
+            selector_close();
+
+            return EXIT_FAILURE;
+        }
+    }
+
     volatile bool stop = false;
     struct socks_server *socks = NULL;
     struct monitor_server *monitor = NULL;
@@ -221,7 +220,6 @@ int main(int argc, char **argv)
 
         if (stop)
         {
-            /* Fase 1 del shutdown: no aceptar más clientes SOCKS ni admin */
             socks_server_stop_accepting(socks);
             monitor_server_stop_accepting(monitor);
         }
