@@ -95,7 +95,7 @@ socks_request_status socks_request_parser_feed(socks_request_parser *parser,
     case REQ_CMD:
         if (byte != SOCKS_CMD_CONNECT)
         {
-            return SOCKS_REQUEST_REJECT;
+            return SOCKS_REQUEST_REJECT_CMD;
         }
         parser->cmd = byte;
         parser->state = REQ_RSV;
@@ -139,7 +139,7 @@ socks_request_status socks_request_parser_feed(socks_request_parser *parser,
             parser->state = REQ_FQDN_LEN;
             return SOCKS_REQUEST_NEED_MORE;
         }
-        return SOCKS_REQUEST_REJECT;
+        return SOCKS_REQUEST_REJECT_ATYP;
 
     case REQ_ADDR_IPV4:
     {

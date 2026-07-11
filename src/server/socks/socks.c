@@ -49,6 +49,9 @@ static unsigned socks_begin_origin_connect(struct selector_key *key);
 static void socks_free_dns(struct socks_session *session);
 static bool socks_send_connect_reply(struct socks_session *session, uint8_t rep);
 static void socks_fail_request(struct selector_key *key, uint8_t rep);
+static uint8_t socks_errno_to_rep(int err);
+static uint8_t socks_gai_rc_to_rep(int gai_rc);
+static uint8_t socks_request_status_to_rep(socks_request_status status);
 static void socks_session_close_from_origin(struct socks_session *session);
 static void socks_session_destroy_origin(struct socks_session *session);
 
@@ -288,13 +291,73 @@ static bool socks_send_connect_reply(struct socks_session *session, uint8_t rep)
     return socks_o2c_append(session, reply, sizeof(reply));
 }
 
+/* REP del reply CONNECT (RFC 1928). */
+#define SOCKS_REP_SUCCEEDED              0x00
+#define SOCKS_REP_GENERAL_FAILURE        0x01
+#define SOCKS_REP_NETWORK_UNREACHABLE    0x03
+#define SOCKS_REP_HOST_UNREACHABLE       0x04
+#define SOCKS_REP_CONNECTION_REFUSED     0x05
+#define SOCKS_REP_COMMAND_NOT_SUPPORTED  0x07
+#define SOCKS_REP_ATYP_NOT_SUPPORTED     0x08
+
+/*
+ * Mapea errno de connect() al REP correspondiente.
+ */
+static uint8_t socks_errno_to_rep(int err)
+{
+    switch (err)
+    {
+    case ENETUNREACH:
+        return SOCKS_REP_NETWORK_UNREACHABLE;
+    case EHOSTUNREACH:
+    case EHOSTDOWN:
+        return SOCKS_REP_HOST_UNREACHABLE;
+    case ECONNREFUSED:
+        return SOCKS_REP_CONNECTION_REFUSED;
+    case EAFNOSUPPORT:
+        return SOCKS_REP_ATYP_NOT_SUPPORTED;
+    default:
+        return SOCKS_REP_GENERAL_FAILURE;
+    }
+}
+
+/*
+ * Mapea el código de getaddrinfo() al REP correspondiente.
+ */
+static uint8_t socks_gai_rc_to_rep(int gai_rc)
+{
+    switch (gai_rc)
+    {
+    case EAI_NONAME:
+#ifdef EAI_NODATA
+    case EAI_NODATA:
+#endif
+        return SOCKS_REP_HOST_UNREACHABLE;
+#ifdef EAI_ADDRFAMILY
+    case EAI_ADDRFAMILY:
+#endif
+    case EAI_FAMILY:
+        return SOCKS_REP_ATYP_NOT_SUPPORTED;
+    default:
+        return SOCKS_REP_GENERAL_FAILURE;
+    }
+}
+
+static uint8_t socks_request_status_to_rep(socks_request_status status)
+{
+    switch (status)
+    {
+    case SOCKS_REQUEST_REJECT_CMD:
+        return SOCKS_REP_COMMAND_NOT_SUPPORTED;
+    case SOCKS_REQUEST_REJECT_ATYP:
+        return SOCKS_REP_ATYP_NOT_SUPPORTED;
+    default:
+        return SOCKS_REP_GENERAL_FAILURE;
+    }
+}
+
 /*
  * Falla el CONNECT: manda reply con código de error y cierra tras vaciar o2c.
- *
- * Códigos REP usados:
- *   0x01 — error general
- *   0x04 — host inalcanzable (DNS falló)
- *   0x05 — conexión rechazada (connect() falló)
  */
 static void socks_fail_request(struct selector_key *key, uint8_t rep)
 {
@@ -366,7 +429,7 @@ static unsigned socks_start_dns_resolve(struct selector_key *key)
 
     if (ctx == NULL)
     {
-        socks_fail_request(key, 0x01);
+        socks_fail_request(key, SOCKS_REP_GENERAL_FAILURE);
         return SOCKS_ST_DONE;
     }
 
@@ -386,7 +449,7 @@ static unsigned socks_start_dns_resolve(struct selector_key *key)
     if (pthread_create(&tid, NULL, socks_dns_thread, ctx) != 0)
     {
         free(ctx);
-        socks_fail_request(key, 0x01);
+        socks_fail_request(key, SOCKS_REP_GENERAL_FAILURE);
         return SOCKS_ST_DONE;
     }
     pthread_detach(tid);
@@ -444,27 +507,29 @@ static unsigned socks_begin_origin_connect(struct selector_key *key)
 
     if (addr == NULL || addr_len == 0)
     {
-        socks_fail_request(key, 0x01);
+        socks_fail_request(key, SOCKS_REP_GENERAL_FAILURE);
         return SOCKS_ST_DONE;
     }
 
     const int fd = socket(addr->sa_family, SOCK_STREAM, 0);
     if (fd < 0)
     {
-        socks_fail_request(key, 0x01);
+        socks_fail_request(key, SOCKS_REP_GENERAL_FAILURE);
         return SOCKS_ST_DONE;
     }
 
     if (selector_fd_set_nio(fd) < 0)
     {
         close(fd);
-        socks_fail_request(key, 0x01);
+        socks_fail_request(key, SOCKS_REP_GENERAL_FAILURE);
         return SOCKS_ST_DONE;
     }
 
     const int rc = connect(fd, addr, addr_len);
     if (rc < 0 && errno != EINPROGRESS)
     {
+        const uint8_t rep = socks_errno_to_rep(errno);
+
         close(fd);
         if (session->dns_cursor != NULL &&
             session->dns_cursor->ai_next != NULL)
@@ -472,7 +537,7 @@ static unsigned socks_begin_origin_connect(struct selector_key *key)
             session->dns_cursor = session->dns_cursor->ai_next;
             return socks_begin_origin_connect(key);
         }
-        socks_fail_request(key, 0x05);
+        socks_fail_request(key, rep);
         return SOCKS_ST_DONE;
     }
 
@@ -486,7 +551,7 @@ static unsigned socks_begin_origin_connect(struct selector_key *key)
     {
         close(fd);
         session->origin_fd = -1;
-        socks_fail_request(key, 0x01);
+        socks_fail_request(key, SOCKS_REP_GENERAL_FAILURE);
         return SOCKS_ST_DONE;
     }
 
@@ -504,7 +569,7 @@ static unsigned socks_begin_origin_connect(struct selector_key *key)
  *
  *   PARSED_ADDR  → connect directo (IP en el mensaje)
  *   PARSED_FQDN  → getaddrinfo en thread
- *   REJECT       → reply REP=0x01 y cierre
+ *   REJECT*      → reply REP según RFC 1928 y cierre
  */
 static unsigned socks_on_read_request(struct selector_key *key)
 {
@@ -529,9 +594,11 @@ static unsigned socks_on_read_request(struct selector_key *key)
             continue;
         }
 
-        if (status == SOCKS_REQUEST_REJECT)
+        if (status == SOCKS_REQUEST_REJECT ||
+            status == SOCKS_REQUEST_REJECT_CMD ||
+            status == SOCKS_REQUEST_REJECT_ATYP)
         {
-            socks_fail_request(key, 0x01);
+            socks_fail_request(key, socks_request_status_to_rep(status));
             return SOCKS_ST_DONE;
         }
 
@@ -562,7 +629,7 @@ static unsigned socks_on_read_request(struct selector_key *key)
 
 /*
  * Evento block en RESOLVING: el thread de DNS terminó.
- * Si getaddrinfo OK → connect al primer addrinfo; si no → REP=0x04.
+ * Si getaddrinfo OK → connect al primer addrinfo; si no → REP según gai_rc.
  */
 static unsigned socks_on_block_resolving(struct selector_key *key)
 {
@@ -575,7 +642,7 @@ static unsigned socks_on_block_resolving(struct selector_key *key)
 
     if (session->dns_gai_rc != 0 || session->dns_result == NULL)
     {
-        socks_fail_request(key, 0x04);
+        socks_fail_request(key, socks_gai_rc_to_rep(session->dns_gai_rc));
         return SOCKS_ST_DONE;
     }
 
@@ -625,11 +692,11 @@ static void socks_origin_connect_complete(struct selector_key *key)
             return;
         }
 
-        socks_fail_request(key, 0x05);
+        socks_fail_request(key, socks_errno_to_rep(err));
         return;
     }
 
-    if (!socks_send_connect_reply(session, 0x00))
+    if (!socks_send_connect_reply(session, SOCKS_REP_SUCCEEDED))
     {
         socks_unregister_session(key);
         return;
