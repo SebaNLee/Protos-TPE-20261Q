@@ -481,11 +481,32 @@ START_TEST(test_log_circular)
 }
 END_TEST
 
+START_TEST(test_session_ttl_expired)
+{
+    struct monitor_store *store = store_create();
+    mt_log_list logs = {0};
+
+    const store_session_id id = store_session_begin(store);
+    store_session_set_user(store, id, "idleuser");
+    store_log_id log_id = store_session_set_dest(store, id, "idle.host", 80);
+    ck_assert(log_id != STORE_LOG_INVALID);
+    store_session_add_bytes(store, id, 5, 15);
+    store_session_mark_ttl_expired(store, id);
+
+    store_log_foreach(store, NULL, mt_collect_log, &logs);
+    ck_assert_uint_eq(1, logs.count);
+    ck_assert_str_eq("TTL_EXPIRED", store_log_state_str(STORE_LOG_TTL_EXPIRED));
+
+    store_destroy(store);
+}
+END_TEST
+
 START_TEST(test_log_states)
 {
     ck_assert_str_eq("CONNECTED", store_log_state_str(STORE_LOG_CONNECTED));
     ck_assert_str_eq("CLOSED", store_log_state_str(STORE_LOG_CLOSED));
     ck_assert_str_eq("FAILED", store_log_state_str(STORE_LOG_FAILED));
+    ck_assert_str_eq("TTL_EXPIRED", store_log_state_str(STORE_LOG_TTL_EXPIRED));
 }
 END_TEST
 
@@ -531,6 +552,7 @@ Suite *monitor_store_suite(void)
     tcase_add_test(tc, test_session_phases);
     tcase_add_test(tc, test_session_failed);
     tcase_add_test(tc, test_session_end);
+    tcase_add_test(tc, test_session_ttl_expired);
     tcase_add_test(tc, test_log_order);
     tcase_add_test(tc, test_log_filter);
     tcase_add_test(tc, test_log_circular);

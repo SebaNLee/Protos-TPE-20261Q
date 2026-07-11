@@ -56,9 +56,11 @@ static void socks_session_close_from_origin(struct socks_session *session);
 static void socks_session_destroy_origin(struct socks_session *session);
 
 static void socks_session_record_dest(struct socks_session *session);
-static void socks_check_idle_timeout(struct socks_session *session,
-                                     struct selector_key *key);
 static void socks_auth_store_user(struct socks_session *session);
+static void idle_list_remove(struct socks_server *srv, struct socks_session *session);
+static void idle_list_push_tail(struct socks_server *srv, struct socks_session *session);
+static void socks_session_touch(struct socks_session *session);
+static void socks_expire_session_pre_relay(struct socks_session *session);
 
 /* ==========================================================================
  * Integración con monitor_store
@@ -71,7 +73,7 @@ static void socks_auth_store_user(struct socks_session *session);
  *   pedido CONNECT     → store_session_set_phase()  (CONNECTIONS)
  *   CONNECT exitoso    → store_session_set_dest()   (ACCESS_LOG)
  *   relay c2o/o2c      → store_session_add_bytes()  (STATS, ACCESS_LOG)
- *   cierre / fallo     → store_session_end() / mark_failed()
+ *   cierre / fallo     → store_session_end() / mark_failed() / mark_ttl_expired()
  *
  * Ver también el diagrama de ciclo de vida en store.h.
  * ========================================================================== */
@@ -297,6 +299,7 @@ static bool socks_send_connect_reply(struct socks_session *session, uint8_t rep)
 #define SOCKS_REP_NETWORK_UNREACHABLE    0x03
 #define SOCKS_REP_HOST_UNREACHABLE       0x04
 #define SOCKS_REP_CONNECTION_REFUSED     0x05
+#define SOCKS_REP_TTL_EXPIRED              0x06
 #define SOCKS_REP_COMMAND_NOT_SUPPORTED  0x07
 #define SOCKS_REP_ATYP_NOT_SUPPORTED     0x08
 
@@ -762,6 +765,7 @@ static void socks_origin_read(struct selector_key *key)
     }
 
     buffer_write_adv(&session->o2c, n);
+    socks_session_touch(session);
     if (session->srv != NULL && session->srv->store != NULL &&
         session->store_id != STORE_SESSION_INVALID)
     {
@@ -811,6 +815,7 @@ static void socks_origin_write(struct selector_key *key)
 
     buffer_read_adv(&session->c2o, n);
     buffer_compact(&session->c2o);
+    socks_session_touch(session);
     if (session->srv != NULL && session->srv->store != NULL &&
         session->store_id != STORE_SESSION_INVALID)
     {
@@ -976,30 +981,148 @@ static void socks_session_record_dest(struct socks_session *session)
     session->dest_recorded = true;
 }
 
-/*
- * CONFIG timeout: si la sesión supera N segundos sin tráfico, la cerramos.
- * timeout=0 (default) desactiva esta comprobación.
- */
-static void socks_check_idle_timeout(struct socks_session *session,
-                                     struct selector_key *key)
+/* ==========================================================================
+ * Lista idle (ordenada por last_activity: head = más viejo, tail = más reciente)
+ * ========================================================================== */
+
+static void idle_list_remove(struct socks_server *srv, struct socks_session *session)
 {
+    if (srv == NULL || session == NULL || !session->in_idle_list)
+    {
+        return;
+    }
+
+    if (session->idle_prev != NULL)
+    {
+        session->idle_prev->idle_next = session->idle_next;
+    }
+    else
+    {
+        srv->idle_head = session->idle_next;
+    }
+
+    if (session->idle_next != NULL)
+    {
+        session->idle_next->idle_prev = session->idle_prev;
+    }
+    else
+    {
+        srv->idle_tail = session->idle_prev;
+    }
+
+    session->idle_prev = NULL;
+    session->idle_next = NULL;
+    session->in_idle_list = false;
+}
+
+static void idle_list_push_tail(struct socks_server *srv, struct socks_session *session)
+{
+    if (srv == NULL || session == NULL)
+    {
+        return;
+    }
+
+    if (session->in_idle_list)
+    {
+        if (session == srv->idle_tail)
+        {
+            return;
+        }
+
+        idle_list_remove(srv, session);
+    }
+
+    session->idle_prev = srv->idle_tail;
+    session->idle_next = NULL;
+
+    if (srv->idle_tail != NULL)
+    {
+        srv->idle_tail->idle_next = session;
+    }
+    else
+    {
+        srv->idle_head = session;
+    }
+
+    srv->idle_tail = session;
+    session->in_idle_list = true;
+}
+
+static void socks_session_touch(struct socks_session *session)
+{
+    if (session == NULL || session->srv == NULL)
+    {
+        return;
+    }
+
+    session->last_activity = time(NULL);
+
+    if (session->in_idle_list)
+    {
+        idle_list_push_tail(session->srv, session);
+    }
+}
+
+/*
+ * TTL pre-RELAY: reply 0x06 + flush + close.
+ * No usa socks_fail_request (evita log FAILED y liberar store_id antes del close).
+ */
+static void socks_expire_session_pre_relay(struct socks_session *session)
+{
+    if (session == NULL || session->srv == NULL)
+    {
+        return;
+    }
+
+    if (!socks_send_connect_reply(session, SOCKS_REP_TTL_EXPIRED))
+    {
+        selector_unregister_fd(session->srv->selector, session->client_fd);
+        return;
+    }
+
+    session->close_after_flush = true;
+    session->stm.current = session->stm.states + SOCKS_ST_DONE;
+    selector_set_interest(session->srv->selector,
+                          session->client_fd,
+                          socks_client_interest(session));
+}
+
+void socks_server_expire_idle(struct socks_server *srv)
+{
+    if (srv == NULL || srv->store == NULL)
+    {
+        return;
+    }
+
     uint32_t timeout = 0;
 
-    if (session == NULL || session->srv == NULL ||
-        session->srv->store == NULL || session->store_id == STORE_SESSION_INVALID)
+    if (!store_config_get(srv->store, STORE_CFG_TIMEOUT, &timeout) || timeout == 0)
     {
         return;
     }
 
-    if (!store_config_get(session->srv->store, STORE_CFG_TIMEOUT, &timeout) ||
-        timeout == 0)
-    {
-        return;
-    }
+    const time_t now = time(NULL);
 
-    if (time(NULL) - session->last_activity >= (time_t)timeout)
+    while (srv->idle_head != NULL)
     {
-        socks_unregister_session(key);
+        struct socks_session *session = srv->idle_head;
+
+        if (now - session->last_activity < (time_t)timeout)
+        {
+            break;
+        }
+
+        session->ttl_expired = true;
+        idle_list_remove(srv, session);
+
+        if (stm_state(&session->stm) == SOCKS_ST_RELAY)
+        {
+            selector_unregister_fd(srv->selector, session->client_fd);
+        }
+        else
+        {
+            socks_expire_session_pre_relay(session);
+        }
     }
 }
 
@@ -1074,6 +1197,10 @@ static bool socks_session_init(struct socks_session *session,
     session->store_id = STORE_SESSION_INVALID;
     session->last_activity = time(NULL);
     session->dest_recorded = false;
+    session->ttl_expired = false;
+    session->in_idle_list = false;
+    session->idle_prev = NULL;
+    session->idle_next = NULL;
 
     socks_session_stm_init(session);
     return true;
@@ -1147,7 +1274,6 @@ static void socks_client_read(struct selector_key *key)
 {
     struct socks_session *session = key->data;
 
-    socks_check_idle_timeout(session, key);
     if (session == NULL)
     {
         return;
@@ -1180,7 +1306,7 @@ static void socks_client_read(struct selector_key *key)
     }
 
     buffer_write_adv(&session->c2o, n);
-    session->last_activity = time(NULL);
+    socks_session_touch(session);
 
     if (stm_state(&session->stm) == SOCKS_ST_RELAY)
     {
@@ -1232,6 +1358,7 @@ static void socks_client_write(struct selector_key *key)
 
     buffer_read_adv(&session->o2c, n);
     buffer_compact(&session->o2c);
+    socks_session_touch(session);
     stm_handler_write(&session->stm, key);
 
     if (session->close_after_flush && !buffer_can_read(&session->o2c))
@@ -1274,10 +1401,19 @@ static void socks_client_close(struct selector_key *key)
 
     if (session != NULL)
     {
+        idle_list_remove(srv, session);
+
         if (session->srv != NULL && session->srv->store != NULL &&
             session->store_id != STORE_SESSION_INVALID)
         {
-            store_session_end(session->srv->store, session->store_id);
+            if (session->ttl_expired)
+            {
+                store_session_mark_ttl_expired(session->srv->store, session->store_id);
+            }
+            else
+            {
+                store_session_end(session->srv->store, session->store_id);
+            }
             session->store_id = STORE_SESSION_INVALID;
         }
 
@@ -1382,6 +1518,7 @@ static void socks_passive_read(struct selector_key *key)
         }
 
         srv->active_sessions++;
+        idle_list_push_tail(srv, session);
     }
 }
 

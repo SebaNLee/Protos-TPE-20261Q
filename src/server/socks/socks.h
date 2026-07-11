@@ -85,6 +85,12 @@ struct socks_session
     store_session_id store_id;
     time_t last_activity; /* para CONFIG timeout (idle) */
     bool dest_recorded;
+
+    /* Lista doblemente enlazada por inactividad (head = más idle, tail = más reciente) */
+    struct socks_session *idle_prev;
+    struct socks_session *idle_next;
+    bool in_idle_list;
+    bool ttl_expired; /* true si el cierre fue por CONFIG timeout */
 };
 
 /* Estado global del servidor proxy (equivalente a echo_server). */
@@ -96,6 +102,9 @@ struct socks_server
     size_t active_sessions;
     volatile bool *stop;         /* Apunta al flag de shutdown en main.c */
     struct monitor_store *store; /* usuarios + métricas + log compartidos con monitor */
+
+    struct socks_session *idle_head;
+    struct socks_session *idle_tail;
 };
 
 selector_status socks_server_init(fd_selector s,
@@ -116,5 +125,8 @@ bool socks_server_is_empty(const struct socks_server *srv);
 void socks_server_stop_accepting(struct socks_server *srv);
 
 uint16_t socks_server_port(const struct socks_server *srv);
+
+/* Recorre la lista idle (head → tail) y expira sesiones según CONFIG timeout. */
+void socks_server_expire_idle(struct socks_server *srv);
 
 #endif

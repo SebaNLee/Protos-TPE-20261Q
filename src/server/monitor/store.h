@@ -14,8 +14,9 @@
  *   store_session_set_phase()   → AUTH / CONNECTING / RELAY
  *   store_session_set_dest()    → crea entrada CONNECTED en access log
  *   store_session_add_bytes()   → actualiza métricas + log en curso
- *   store_session_end()         → log CLOSED
- *   store_session_mark_failed() → log FAILED (entrada nueva, sin log_id previo)
+ *   store_session_end()              → log CLOSED
+ *   store_session_mark_failed()      → log FAILED (entrada nueva, sin log_id previo)
+ *   store_session_mark_ttl_expired() → log TTL_EXPIRED
  *
  * Ver también el bloque "Integración con monitor_store" en socks.c.
  */
@@ -76,9 +77,10 @@ typedef enum
 
 typedef enum
 {
-    STORE_LOG_CONNECTED, /* CONNECT al destino exitoso, sesión en curso */
-    STORE_LOG_CLOSED,    /* sesión terminó normalmente */
-    STORE_LOG_FAILED,    /* no se pudo conectar al destino */
+    STORE_LOG_CONNECTED,   /* CONNECT al destino exitoso, sesión en curso */
+    STORE_LOG_CLOSED,      /* sesión terminó normalmente */
+    STORE_LOG_FAILED,      /* no se pudo conectar al destino */
+    STORE_LOG_TTL_EXPIRED, /* sesión cerrada por CONFIG timeout */
 } store_log_state;
 
 typedef enum
@@ -206,6 +208,9 @@ void store_session_mark_failed(struct monitor_store *store, store_session_id id)
 
 /* Cierre normal: marca log CLOSED y libera el slot. */
 void store_session_end(struct monitor_store *store, store_session_id id);
+
+/* Cierre por idle timeout: marca log TTL_EXPIRED y libera el slot. */
+void store_session_mark_ttl_expired(struct monitor_store *store, store_session_id id);
 
 /* Iteradores usados por monitor_commands (CONNECTIONS, ACCESS_LOG). */
 void store_sessions_foreach(const struct monitor_store *store,
