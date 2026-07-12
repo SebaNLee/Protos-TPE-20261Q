@@ -134,7 +134,7 @@ int main(int argc, char **argv)
 
     const struct selector_init conf = {
         .signal = SIGUSR1,
-        .select_timeout = {.tv_sec = 0, .tv_nsec = 0},
+        .select_timeout = {.tv_sec = 1, .tv_nsec = 0},
     };
 
     if (selector_init(&conf) != SELECTOR_SUCCESS)
@@ -228,6 +228,8 @@ int main(int argc, char **argv)
         {
             break;
         }
+
+        socks_server_expire_idle(socks);
 
         if (force_quit)
         {

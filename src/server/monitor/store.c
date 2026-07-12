@@ -702,6 +702,36 @@ void store_session_end(struct monitor_store *store, store_session_id id)
     store_session_remove(store, node);
 }
 
+/* Cierre por idle timeout: marca log TTL_EXPIRED y libera el slot. */
+void store_session_mark_ttl_expired(struct monitor_store *store, store_session_id id)
+{
+    struct store_session_node *node = store_find_session(store, id);
+
+    if (node == NULL)
+    {
+        return;
+    }
+
+    if (node->log_id != STORE_LOG_INVALID)
+    {
+        store_log_update(store,
+                         node->log_id,
+                         STORE_LOG_TTL_EXPIRED,
+                         node->info.bytes_up,
+                         node->info.bytes_down);
+    }
+    else if (node->info.username[0] != '\0' && node->info.host[0] != '\0')
+    {
+        store_log_append(store,
+                         node->info.username,
+                         node->info.host,
+                         node->info.port,
+                         STORE_LOG_TTL_EXPIRED);
+    }
+
+    store_session_remove(store, node);
+}
+
 /* Invoca fn por cada sesión SOCKS activa; se detiene si fn devuelve false. */
 void store_sessions_foreach(const struct monitor_store *store,
                             bool (*fn)(const store_active_session *session, void *ctx),
@@ -812,6 +842,8 @@ const char *store_log_state_str(store_log_state state)
         return "CLOSED";
     case STORE_LOG_FAILED:
         return "FAILED";
+    case STORE_LOG_TTL_EXPIRED:
+        return "TTL_EXPIRED";
     default:
         return "UNKNOWN";
     }
