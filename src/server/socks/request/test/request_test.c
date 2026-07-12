@@ -67,7 +67,18 @@ START_TEST(test_request_reject_bad_cmd)
 
     const uint8_t msg[] = {0x05, 0x03, 0x00, 0x01};
 
-    ck_assert_int_eq(SOCKS_REQUEST_REJECT, feed_all(&parser, msg, sizeof(msg)));
+    ck_assert_int_eq(SOCKS_REQUEST_REJECT_CMD, feed_all(&parser, msg, sizeof(msg)));
+}
+END_TEST
+
+START_TEST(test_request_reject_bad_atyp)
+{
+    socks_request_parser parser;
+    socks_request_parser_init(&parser);
+
+    const uint8_t msg[] = {0x05, 0x01, 0x00, 0x02};
+
+    ck_assert_int_eq(SOCKS_REQUEST_REJECT_ATYP, feed_all(&parser, msg, sizeof(msg)));
 }
 END_TEST
 
@@ -79,6 +90,7 @@ Suite *socks5_request_suite(void)
     tcase_add_test(tc, test_request_ipv4);
     tcase_add_test(tc, test_request_fqdn);
     tcase_add_test(tc, test_request_reject_bad_cmd);
+    tcase_add_test(tc, test_request_reject_bad_atyp);
     suite_add_tcase(s, tc);
 
     return s;

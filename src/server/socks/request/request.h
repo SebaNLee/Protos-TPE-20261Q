@@ -15,7 +15,9 @@
  *   NEED_MORE     — mensaje incompleto; seguir leyendo de c2o
  *   PARSED_ADDR   — IPv4 o IPv6 listos en dest_addr (sin DNS)
  *   PARSED_FQDN   — hostname en fqdn + dest_port; socks.c debe resolver DNS
- *   REJECT        — versión/CMD/ATYP inválidos
+ *   REJECT        — versión/RSV/FQDN inválidos (REP=0x01)
+ *   REJECT_CMD    — CMD distinto de CONNECT (REP=0x07)
+ *   REJECT_ATYP   — ATYP no soportado (REP=0x08)
  */
 typedef enum
 {
@@ -23,6 +25,8 @@ typedef enum
     SOCKS_REQUEST_PARSED_ADDR, /* dest_addr listo (IPv4 o IPv6) */
     SOCKS_REQUEST_PARSED_FQDN, /* hostname + dest_port; requiere DNS */
     SOCKS_REQUEST_REJECT,
+    SOCKS_REQUEST_REJECT_CMD,
+    SOCKS_REQUEST_REJECT_ATYP,
 } socks_request_status;
 
 /*
