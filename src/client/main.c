@@ -66,8 +66,6 @@ static bool screen_login(int fd)
     char pass[MAX_INPUT_LEN];
     char err[MAX_RESP_LINE_LEN];
 
-    printf("ChungusMonitor v1.0\n\n");
-
     while (1)
     {
         printf("\033[s");
@@ -359,6 +357,9 @@ int main(int argc, char **argv)
     }
 
     printf("Conectado.\n\n");
+
+    printf("\033[3A\033[J");
+    printf("ChungusMonitor v1.0 - 127.0.0.1:%u\n\n", port);
 
     if (!screen_login(fd))
     {
