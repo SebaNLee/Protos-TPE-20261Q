@@ -57,7 +57,10 @@ static const fd_handler monitor_passive_handler = {
     .handle_close = monitor_passive_close,
 };
 
-/* Intereses de lectura/escritura según espacio en rb y datos en wb */
+/* Intereses de lectura/escritura
+ * Tras un read se intenta escribir (monitor_flush)
+ * OP_WRITE solo queda armado si aún hay bytes pendientes
+ */
 static fd_interest monitor_client_interest(struct monitor_session *session)
 {
     fd_interest interest = OP_NOOP;
@@ -80,6 +83,49 @@ static void monitor_unregister_session(struct selector_key *key)
     selector_unregister_fd(key->s, key->fd);
 }
 
+/*
+ * Escritura optimista wb → client_fd
+ * Retorna false si la sesión se cerró (error o QUIT al vaciar wb)
+ */
+static bool monitor_flush(struct selector_key *key)
+{
+    struct monitor_session *session = key->data;
+    size_t pending = 0;
+    uint8_t *ptr = buffer_read_ptr(&session->commands.wb, &pending);
+
+    if (pending == 0)
+    {
+        if (monitor_commands_should_close(&session->commands))
+        {
+            monitor_unregister_session(key);
+            return false;
+        }
+        return true;
+    }
+
+    const ssize_t n = write(key->fd, ptr, pending);
+    if (n < 0)
+    {
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+        {
+            return true;
+        }
+        monitor_unregister_session(key);
+        return false;
+    }
+
+    buffer_read_adv(&session->commands.wb, n);
+    buffer_compact(&session->commands.wb);
+
+    if (monitor_commands_should_close(&session->commands))
+    {
+        monitor_unregister_session(key);
+        return false;
+    }
+
+    return true;
+}
+
 /* Pipelining: vacía rb alimentando monitor_commands_feed byte a byte */
 static void feed_rb_to_commands(struct monitor_session *session)
 {
@@ -100,7 +146,7 @@ static void feed_rb_to_commands(struct monitor_session *session)
 
 /*
  * Half-close (requisito del TPE):
- *   EOF → drenar rb → flush_on_eof → mantener fd si wb tiene respuestas.
+ *   EOF → drenar rb → flush_on_eof → intentar write inmediato de wb.
  */
 static void monitor_client_read(struct selector_key *key)
 {
@@ -119,6 +165,11 @@ static void monitor_client_read(struct selector_key *key)
     {
         feed_rb_to_commands(session);
         monitor_commands_flush_on_eof(&session->commands);
+
+        if (!monitor_flush(key))
+        {
+            return;
+        }
 
         if (buffer_can_read(&session->commands.wb))
         {
@@ -142,6 +193,10 @@ static void monitor_client_read(struct selector_key *key)
 
     buffer_write_adv(&session->rb, n);
     feed_rb_to_commands(session);
+    if (!monitor_flush(key))
+    {
+        return;
+    }
     selector_set_interest_key(key, monitor_client_interest(session));
 }
 
@@ -149,33 +204,9 @@ static void monitor_client_read(struct selector_key *key)
 static void monitor_client_write(struct selector_key *key)
 {
     struct monitor_session *session = key->data;
-    size_t pending = 0;
-    uint8_t *ptr = buffer_read_ptr(&session->commands.wb, &pending);
 
-    if (pending == 0)
+    if (!monitor_flush(key))
     {
-        selector_set_interest_key(key, monitor_client_interest(session));
-        return;
-    }
-
-    const ssize_t n = write(key->fd, ptr, pending);
-    if (n < 0)
-    {
-        if (errno == EAGAIN || errno == EWOULDBLOCK)
-        {
-            selector_set_interest_key(key, monitor_client_interest(session));
-            return;
-        }
-        monitor_unregister_session(key);
-        return;
-    }
-
-    buffer_read_adv(&session->commands.wb, n);
-    buffer_compact(&session->commands.wb);
-
-    if (monitor_commands_should_close(&session->commands))
-    {
-        monitor_unregister_session(key);
         return;
     }
 
