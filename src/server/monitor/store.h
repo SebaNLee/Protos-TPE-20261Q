@@ -273,4 +273,10 @@ bool is_host_denied(const struct monitor_store *store, const char *hostname);
 
 bool is_ip_denied(const struct monitor_store *store, const char *ip);
 
+acl_rule *get_denied_hosts(const struct monitor_store *store);
+
+acl_rule *get_denied_ips(const struct monitor_store *store);
+
+const char *acl_rule_to_string(const acl_rule *rule);
+
 #endif

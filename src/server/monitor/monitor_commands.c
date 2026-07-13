@@ -515,7 +515,38 @@ static void handle_undeny(struct monitor_commands_session *session, monitor_cmd 
 
 static void handle_deny_list(struct monitor_commands_session *session, monitor_cmd *cmd)
 {
-    // TODO
+    struct monitor_store *store = session->store;
+
+    bool show_hosts = false;
+    bool show_ips = false;
+
+    if (cmd->argc >= 2)
+    {
+        if (strcmp(cmd->args[1], "host") == 0)
+            show_hosts = true;
+        else if (strcmp(cmd->args[1], "ip") == 0)
+            show_ips = true;
+    }
+
+    if (show_hosts)
+    {
+        acl_rule *hosts = get_denied_hosts(store);
+        commands_wb_append(session, "+OK Denied hosts:\n");
+        for (const acl_rule *r = hosts; r != NULL; r = r->next)
+        {
+            commands_wb_appendf(session, "+OK %s\n", acl_rule_to_string(r));
+        }
+    }
+
+    if (show_ips)
+    {
+        acl_rule *ips = get_denied_ips(store);
+        commands_wb_append(session, "+OK Denied IPs:\n");
+        for (const acl_rule *r = ips; r != NULL; r = r->next)
+        {
+            commands_wb_appendf(session, "+OK %s\n", acl_rule_to_string(r));
+        }
+    }
 }
 
 /* HELP: lista comandos o describe uno puntual. */

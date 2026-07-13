@@ -1058,3 +1058,35 @@ bool store_undeny_ip(struct monitor_store *store, const char *ip)
 
     return false;
 }
+
+acl_rule *get_denied_hosts(const struct monitor_store *store)
+{
+    return store->denied_hosts;
+}
+
+acl_rule *get_denied_ips(const struct monitor_store *store)
+{
+    return store->denied_addresses;
+}
+
+const char *acl_rule_to_string(const acl_rule *rule)
+{
+    if (rule == NULL)
+        return "NULL";
+
+    if (rule->type == ACL_DENIED_HOST)
+        return rule->host;
+
+    static char buf[INET6_ADDRSTRLEN];
+
+    if (inet_ntop(rule->is_v4 ? AF_INET : AF_INET6,
+                  rule->is_v4 ? (const void *)&rule->ipv4
+                              : (const void *)&rule->ipv6,
+                  buf,
+                  sizeof(buf)) == NULL)
+    {
+        return "?";
+    }
+
+    return buf;
+}
