@@ -527,6 +527,10 @@ static void handle_deny_list(struct monitor_commands_session *session, monitor_c
         else if (strcmp(cmd->args[1], "ip") == 0)
             show_ips = true;
     }
+    else
+    {
+        show_hosts = show_ips = true;
+    }
 
     if (show_hosts)
     {
@@ -579,6 +583,10 @@ static void handle_help(struct monitor_commands_session *session, monitor_cmd *c
         {"DEL_USER", "DEL_USER username — remove user from table"},
         {"SET_PASSWORD",
          "SET_PASSWORD username newpassword — change password for an existing user"},
+        {"DENY_HOST", "DENY_HOST fqdn — blacklists a fully qualified domain name for outgoing connections"},
+        {"DENY_IP", "DENY_IP ip — blacklists an IP address (IPv4 or IPv6) for outgoing connections"},
+        {"UNDENY", "UNDENY fqdn|ip — removes a fully qualified domain name or an IP from the blacklist"},
+        {"DENY_LIST", "DENY_LIST [host|ip] — shows the contents of the blacklist"},
         {"HELP", "HELP [command] — list commands or describe one command"},
         {"QUIT", "QUIT — close the connection gracefully"},
     };
@@ -695,6 +703,22 @@ static void dispatch_line(struct monitor_commands_session *session, char *line)
     else if (strcmp(cmd.cmd, "SET_PASSWORD") == 0)
     {
         handle_set_password(session, &cmd);
+    }
+    else if (strcmp(cmd.cmd, "DENY_HOST") == 0)
+    {
+        handle_deny_host(session, &cmd);
+    }
+    else if (strcmp(cmd.cmd, "DENY_IP") == 0)
+    {
+        handle_deny_ip(session, &cmd);
+    }
+    else if (strcmp(cmd.cmd, "UNDENY") == 0)
+    {
+        handle_undeny(session, &cmd);
+    }
+    else if (strcmp(cmd.cmd, "DENY_LIST") == 0)
+    {
+        handle_deny_list(session, &cmd);
     }
     else if (strcmp(cmd.cmd, "HELP") == 0)
     {
