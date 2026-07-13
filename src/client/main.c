@@ -89,9 +89,14 @@ static bool screen_login(int fd)
         }
 
         printf("Error: %s\n", err);
-        printf("[Enter] reintentar  [Ctrl+C] salir\n");
-        char buf[64];
-        fgets(buf, sizeof(buf), stdin);
+        printf("[Enter] Reintentar  [q] Salir\n");
+
+        term_enter_raw();
+        int key = term_getkey();
+        term_exit_raw();
+
+        if (key == 'q' || key == KEY_ESC)
+            return false;
         printf("\033[u\033[J");
     }
 }
@@ -181,36 +186,48 @@ static void screen_users(int fd)
 static void screen_config(int fd)
 {
     char err[MAX_RESP_LINE_LEN];
+    const char *labels[config_count + 1];
+    char labels_buf[config_count][64];
 
     while (1)
     {
-        printf("\nConfiguracion\n");
         for (int i = 0; i < config_count; i++)
         {
-            printf("  %d. %s [%u] (%u-%u)\n",
-                   i + 1, params[i].label, params[i].value,
-                   params[i].min, params[i].max);
+            snprintf(labels_buf[i], sizeof(labels_buf[i]),
+                     "%s [%u]", params[i].label, params[i].value);
+            labels[i] = labels_buf[i];
         }
-        printf("  0. Volver\n");
+        labels[config_count] = "Volver";
 
-        long opt = input_number("Parametro: ", 0, config_count);
-        if (opt == 0)
-            return;
-
-        int idx = (int)opt - 1;
-        long val = input_number("Nuevo valor: ",
-                                (long)params[idx].min,
-                                (long)params[idx].max);
-
-        if (cmd_config(fd, params[idx].name, (uint32_t)val, err, sizeof(err)))
+        printf("\033[s");
+        int sel = select_menu("Configuracion", labels, config_count + 1);
+        if (sel < 0 || sel >= config_count)
         {
-            params[idx].value = (uint32_t)val;
-            printf("  OK\n");
+            printf("\033[u\033[J");
+            return;
+        }
+
+        int n = config_count + 4;
+        printf("\033[%dA\033[J", n);
+        printf("\n%s\n", params[sel].label);
+
+        long val = input_number("  Nuevo valor: ",
+                                (long)params[sel].min,
+                                (long)params[sel].max);
+
+        printf("\n");
+        if (cmd_config(fd, params[sel].name, (uint32_t)val, err, sizeof(err)))
+        {
+            params[sel].value = (uint32_t)val;
+            printf("  Configuracion actualizada.\n");
         }
         else
         {
             printf("  Error: %s\n", err);
         }
+
+        wait_enter();
+        printf("\033[u\033[J");
     }
 }
 
