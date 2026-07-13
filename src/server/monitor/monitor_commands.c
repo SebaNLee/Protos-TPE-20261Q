@@ -439,6 +439,68 @@ static void handle_set_password(struct monitor_commands_session *session, monito
     }
 }
 
+static void handle_deny_host(struct monitor_commands_session *session, monitor_cmd *cmd)
+{
+    struct monitor_store *store = session->store;
+
+    if (cmd->argc < 2)
+    {
+        commands_wb_append(session, "-ERR syntax error\n");
+        return;
+    }
+
+    if (is_host_denied(store, cmd->args[1]))
+    {
+        commands_wb_append(session, "-ERR host already denied\n");
+        return;
+    }
+
+    if (store_deny_host(store, cmd->args[1]))
+    {
+        commands_wb_append(session, "+OK\n");
+    }
+    else
+    {
+        commands_wb_append(session, "-ERR failed to add rule\n");
+    }
+}
+
+static void handle_deny_ip(struct monitor_commands_session *session, monitor_cmd *cmd)
+{
+    struct monitor_store *store = session->store;
+
+    if (cmd->argc < 2)
+    {
+        commands_wb_append(session, "-ERR syntax error\n");
+        return;
+    }
+
+    if (is_ip_denied(store, cmd->args[1]))
+    {
+        commands_wb_append(session, "-ERR address already denied\n");
+        return;
+    }
+
+    if (store_deny_ip(store, cmd->args[1]))
+    {
+        commands_wb_append(session, "+OK\n");
+    }
+    else
+    {
+        commands_wb_append(session, "-ERR failed to add rule\n");
+    }
+}
+
+static void handle_undeny(struct monitor_commands_session *session, monitor_cmd *cmd)
+{
+    // TODO
+}
+
+static void handle_deny_list(struct monitor_commands_session *session, monitor_cmd *cmd)
+{
+    // TODO
+}
+
 /* HELP: lista comandos o describe uno puntual. */
 static void handle_help(struct monitor_commands_session *session, monitor_cmd *cmd)
 {
