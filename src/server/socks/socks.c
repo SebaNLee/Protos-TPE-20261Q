@@ -294,14 +294,14 @@ static bool socks_send_connect_reply(struct socks_session *session, uint8_t rep)
 }
 
 /* REP del reply CONNECT (RFC 1928). */
-#define SOCKS_REP_SUCCEEDED              0x00
-#define SOCKS_REP_GENERAL_FAILURE        0x01
-#define SOCKS_REP_NETWORK_UNREACHABLE    0x03
-#define SOCKS_REP_HOST_UNREACHABLE       0x04
-#define SOCKS_REP_CONNECTION_REFUSED     0x05
-#define SOCKS_REP_TTL_EXPIRED              0x06
-#define SOCKS_REP_COMMAND_NOT_SUPPORTED  0x07
-#define SOCKS_REP_ATYP_NOT_SUPPORTED     0x08
+#define SOCKS_REP_SUCCEEDED 0x00
+#define SOCKS_REP_GENERAL_FAILURE 0x01
+#define SOCKS_REP_NETWORK_UNREACHABLE 0x03
+#define SOCKS_REP_HOST_UNREACHABLE 0x04
+#define SOCKS_REP_CONNECTION_REFUSED 0x05
+#define SOCKS_REP_TTL_EXPIRED 0x06
+#define SOCKS_REP_COMMAND_NOT_SUPPORTED 0x07
+#define SOCKS_REP_ATYP_NOT_SUPPORTED 0x08
 
 /*
  * Mapea errno de connect() al REP correspondiente.
@@ -1320,7 +1320,20 @@ static void socks_client_read(struct selector_key *key)
     }
     else
     {
-        stm_handler_read(&session->stm, key);
+
+        // Un solo read() puede traer el final de un mensaje SOCKS y el comienzo del siguiente
+        // drenaje de c2o mientras sigamos en una fase de parseo del handshake.
+        while (buffer_can_read(&session->c2o))
+        {
+            const unsigned st = stm_state(&session->stm);
+
+            if (st != SOCKS_ST_AUTH_GREETING && st != SOCKS_ST_AUTH_USERPASS &&
+                st != SOCKS_ST_REQUEST)
+            {
+                break;
+            }
+            stm_handler_read(&session->stm, key);
+        }
     }
 
     selector_set_interest_key(key, socks_client_interest(session));
