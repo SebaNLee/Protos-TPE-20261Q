@@ -11,8 +11,8 @@
  * Formato: texto línea a línea, termina con '\n' (acepta '\r\n').
  * monitor.c lee del socket → feed(); las respuestas van a wb.
  *
- * Pre-auth: AUTH, HELP. Post-auth: STATS, CONNECTIONS, USERS, CONFIG,
- * ACCESS_LOG, ADD_USER, DEL_USER, SET_PASSWORD, HELP, QUIT.
+ * Pre-auth: AUTH. Post-auth: STATS, CONNECTIONS, USERS, CONFIG,
+ * ACCESS_LOG, ADD_USER, DEL_USER, SET_PASSWORD, QUIT.
  */
 
 typedef struct
@@ -439,69 +439,6 @@ static void handle_set_password(struct monitor_commands_session *session, monito
     }
 }
 
-/* HELP: lista comandos o describe uno puntual. */
-static void handle_help(struct monitor_commands_session *session, monitor_cmd *cmd)
-{
-    static const struct
-    {
-        const char *name;
-        const char *desc;
-    } topics[] = {
-        {"AUTH",
-         "AUTH username password — authenticate as admin (required before other "
-         "commands except HELP)"},
-        {"STATS",
-         "STATS — show server metrics (total_connections, concurrent_connections, "
-         "bytes_up, bytes_down)"},
-        {"CONNECTIONS",
-         "CONNECTIONS — list active SOCKS sessions (username host:port phase "
-         "bytes_up bytes_down)"},
-        {"USERS", "USERS — list all registered users with their roles"},
-        {"CONFIG",
-         "CONFIG param value — change runtime setting (timeout, max_connections "
-         "up to selector limit, io_buffer_size for new SOCKS sessions)"},
-        {"ACCESS_LOG",
-         "ACCESS_LOG [username] — show connection audit trail, optionally filtered "
-         "by user"},
-        {"ADD_USER",
-         "ADD_USER username password [admin] — create SOCKS user; append admin "
-         "for admin role"},
-        {"DEL_USER", "DEL_USER username — remove user from table"},
-        {"SET_PASSWORD",
-         "SET_PASSWORD username newpassword — change password for an existing user"},
-        {"HELP", "HELP [command] — list commands or describe one command"},
-        {"QUIT", "QUIT — close the connection gracefully"},
-    };
-
-    if (cmd->argc == 1)
-    {
-        commands_wb_append(session, "+OK Available commands:\n");
-        commands_wb_append(session, "+OK AUTH <username> <password>\n");
-        commands_wb_append(session, "+OK STATS\n");
-        commands_wb_append(session, "+OK CONNECTIONS\n");
-        commands_wb_append(session, "+OK USERS\n");
-        commands_wb_append(session, "+OK CONFIG <param> <value>\n");
-        commands_wb_append(session, "+OK ACCESS_LOG [username]\n");
-        commands_wb_append(session, "+OK ADD_USER <username> <password> [admin]\n");
-        commands_wb_append(session, "+OK DEL_USER <username>\n");
-        commands_wb_append(session, "+OK SET_PASSWORD <username> <newpassword>\n");
-        commands_wb_append(session, "+OK HELP [command]\n");
-        commands_wb_append(session, "+OK QUIT\n");
-        return;
-    }
-
-    for (size_t i = 0; i < sizeof(topics) / sizeof(topics[0]); i++)
-    {
-        if (strcmp(cmd->args[1], topics[i].name) == 0)
-        {
-            commands_wb_appendf(session, "+OK %s\n", topics[i].desc);
-            return;
-        }
-    }
-
-    commands_wb_append(session, "-ERR unknown command\n");
-}
-
 /* Encola +OK y marca cierre; monitor.c cierra el fd cuando wb quede vacío */
 static void handle_quit(struct monitor_commands_session *session)
 {
@@ -510,8 +447,8 @@ static void handle_quit(struct monitor_commands_session *session)
 }
 
 /*
- * Puerta de auth y router de comandos.
- *   AWAIT_AUTH: AUTH, HELP habilitados, resto -ERR not authenticated
+ *  Puerta de auth y router de comandos.
+ *   AWAIT_AUTH: solo AUTH, resto -ERR not authenticated
  *   AUTHENTICATED: todos los comandos, excepto AUTH repetido (error)
  *
  * Toda respuesta termina con ".\n" para delimitar fin en el REPL cliente.
@@ -532,10 +469,6 @@ static void dispatch_line(struct monitor_commands_session *session, char *line)
         if (strcmp(cmd.cmd, "AUTH") == 0)
         {
             handle_auth(session, &cmd);
-        }
-        else if (strcmp(cmd.cmd, "HELP") == 0)
-        {
-            handle_help(session, &cmd);
         }
         else
         {
@@ -585,10 +518,6 @@ static void dispatch_line(struct monitor_commands_session *session, char *line)
     else if (strcmp(cmd.cmd, "SET_PASSWORD") == 0)
     {
         handle_set_password(session, &cmd);
-    }
-    else if (strcmp(cmd.cmd, "HELP") == 0)
-    {
-        handle_help(session, &cmd);
     }
     else if (strcmp(cmd.cmd, "QUIT") == 0)
     {
