@@ -903,6 +903,17 @@ bool store_deny_host(struct monitor_store *store, const char *hostname)
     if (is_host_denied(store, hostname))
         return false;
 
+    {
+        struct in_addr addr4;
+        struct in6_addr addr6;
+
+        // Las IPs deben registrarse con store_deny_ip
+        if (inet_pton(AF_INET, hostname, &addr4) == 1 || inet_pton(AF_INET6, hostname, &addr6) == 1)
+        {
+            return false;
+        }
+    }
+
     acl_rule *rule = calloc(1, sizeof(acl_rule));
     rule->type = ACL_DENIED_HOST;
     strcpy(rule->host, hostname);
