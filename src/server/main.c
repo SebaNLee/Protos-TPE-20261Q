@@ -133,7 +133,6 @@ int main(int argc, char **argv)
     install_signal_handlers();
 
     const struct selector_init conf = {
-        .signal = SIGUSR1,
         .select_timeout = {.tv_sec = 1, .tv_nsec = 0},
     };
 

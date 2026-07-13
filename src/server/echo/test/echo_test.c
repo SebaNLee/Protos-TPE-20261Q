@@ -3,7 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
-#include <signal.h>
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -65,7 +65,6 @@ static ssize_t read_all(int fd, uint8_t *buf, size_t len)
 static void run_server_child(int port_pipe_w, int stop_pipe_r)
 {
     const struct selector_init conf = {
-        .signal = SIGUSR1,
         .select_timeout = {.tv_sec = 1, .tv_nsec = 0},
     };
 
