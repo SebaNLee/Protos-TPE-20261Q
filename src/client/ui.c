@@ -13,6 +13,7 @@ static bool raw_active = false;
 static void sigint_handler(int sig)
 {
     (void)sig;
+    write(STDOUT_FILENO, "\033[?25h", 6);
     tcsetattr(STDIN_FILENO, TCSANOW, &saved_term);
     _exit(1);
 }

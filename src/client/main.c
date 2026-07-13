@@ -386,7 +386,7 @@ int main(int argc, char **argv)
     printf("Connected.\n\n");
 
     printf("\033[3A\033[J");
-    printf("ChungusMonitor v1.0 - 127.0.0.1:%u\n", port);
+    printf("ChungusMonitor v1.0 - 127.0.0.1:%u\n\033[?25l", port);
 
     if (!screen_login(fd))
     {
@@ -396,7 +396,7 @@ int main(int argc, char **argv)
 
     screen_main_menu(fd);
 
-    printf("\nDisconnecting...\n");
+    printf("\033[?25h\nDisconnecting...\n");
     cmd_quit(fd);
     close(fd);
     return EXIT_SUCCESS;
