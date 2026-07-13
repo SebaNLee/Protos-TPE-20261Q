@@ -54,6 +54,9 @@ static uint8_t socks_gai_rc_to_rep(int gai_rc);
 static uint8_t socks_request_status_to_rep(socks_request_status status);
 static void socks_session_close_from_origin(struct socks_session *session);
 static void socks_session_destroy_origin(struct socks_session *session);
+static bool socks_flush_client(struct socks_session *session);
+static bool socks_flush_origin(struct socks_session *session);
+static bool socks_close_if_flushed(struct socks_session *session);
 
 static void socks_session_record_dest(struct socks_session *session);
 static void socks_auth_store_user(struct socks_session *session);
@@ -294,14 +297,14 @@ static bool socks_send_connect_reply(struct socks_session *session, uint8_t rep)
 }
 
 /* REP del reply CONNECT (RFC 1928). */
-#define SOCKS_REP_SUCCEEDED              0x00
-#define SOCKS_REP_GENERAL_FAILURE        0x01
-#define SOCKS_REP_NETWORK_UNREACHABLE    0x03
-#define SOCKS_REP_HOST_UNREACHABLE       0x04
-#define SOCKS_REP_CONNECTION_REFUSED     0x05
-#define SOCKS_REP_TTL_EXPIRED              0x06
-#define SOCKS_REP_COMMAND_NOT_SUPPORTED  0x07
-#define SOCKS_REP_ATYP_NOT_SUPPORTED     0x08
+#define SOCKS_REP_SUCCEEDED 0x00
+#define SOCKS_REP_GENERAL_FAILURE 0x01
+#define SOCKS_REP_NETWORK_UNREACHABLE 0x03
+#define SOCKS_REP_HOST_UNREACHABLE 0x04
+#define SOCKS_REP_CONNECTION_REFUSED 0x05
+#define SOCKS_REP_TTL_EXPIRED 0x06
+#define SOCKS_REP_COMMAND_NOT_SUPPORTED 0x07
+#define SOCKS_REP_ATYP_NOT_SUPPORTED 0x08
 
 /*
  * Mapea errno de connect() al REP correspondiente.
@@ -381,7 +384,11 @@ static void socks_fail_request(struct selector_key *key, uint8_t rep)
 
     session->close_after_flush = true;
     session->stm.current = session->stm.states + SOCKS_ST_DONE;
-    /* Despertar client_fd para enviar el reply (p. ej. tras fallo async en origin). */
+
+    if (!socks_flush_client(session))
+    {
+        return;
+    }
     selector_set_interest(key->s, session->client_fd, socks_client_interest(session));
 }
 
@@ -696,6 +703,10 @@ static void socks_origin_connect_complete(struct selector_key *key)
         }
 
         socks_fail_request(key, socks_errno_to_rep(err));
+        if (!socks_close_if_flushed(session))
+        {
+            return;
+        }
         return;
     }
 
@@ -708,6 +719,10 @@ static void socks_origin_connect_complete(struct selector_key *key)
     socks_session_record_dest(session);
 
     session->stm.current = session->stm.states + SOCKS_ST_RELAY;
+    if (!socks_flush_client(session))
+    {
+        return;
+    }
     selector_set_interest(key->s, session->origin_fd, socks_origin_interest(session));
     selector_set_interest(key->s, session->client_fd, socks_client_interest(session));
 }
@@ -716,7 +731,10 @@ static void socks_origin_connect_complete(struct selector_key *key)
  * Intereses del origin_fd (espejo de socks_client_interest, cruzado):
  *
  *   o2c con espacio  → OP_READ  (leer del destino hacia el cliente)
- *   c2o con datos    → OP_WRITE (enviar al destino lo que mandó el cliente)
+ *   c2o con datos    → OP_WRITE (resume tras EAGAIN / escritura parcial)
+ *
+ * Tras un read se intenta write inmediato (socks_flush_*); OP_WRITE solo
+ * queda armado si aún hay bytes pendientes.
  */
 fd_interest socks_origin_interest(struct socks_session *session)
 {
@@ -734,7 +752,118 @@ fd_interest socks_origin_interest(struct socks_session *session)
     return interest;
 }
 
-/* RELAY: origen → o2c → cliente */
+/*
+ * Escritura optimista o2c → client_fd.
+ * Retorna false si la sesión se cerró por error de I/O
+ */
+static bool socks_flush_client(struct socks_session *session)
+{
+    size_t pending = 0;
+    uint8_t *ptr;
+    struct selector_key key;
+
+    if (session == NULL || session->srv == NULL || session->client_fd < 0)
+    {
+        return false;
+    }
+
+    ptr = buffer_read_ptr(&session->o2c, &pending);
+    if (pending == 0)
+    {
+        return true;
+    }
+
+    key.s = session->srv->selector;
+    key.fd = session->client_fd;
+    key.data = session;
+
+    const ssize_t n = write(session->client_fd, ptr, pending);
+    if (n < 0)
+    {
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+        {
+            return true;
+        }
+        socks_unregister_session(&key);
+        return false;
+    }
+
+    buffer_read_adv(&session->o2c, n);
+    buffer_compact(&session->o2c);
+    socks_session_touch(session);
+    stm_handler_write(&session->stm, &key);
+    return true;
+}
+
+/*
+ * Cierra la sesión si close_after_flush y o2c está vacío.
+ */
+static bool socks_close_if_flushed(struct socks_session *session)
+{
+    struct selector_key key;
+
+    if (session == NULL || session->srv == NULL)
+    {
+        return false;
+    }
+    if (!session->close_after_flush || buffer_can_read(&session->o2c))
+    {
+        return true;
+    }
+
+    key.s = session->srv->selector;
+    key.fd = session->client_fd;
+    key.data = session;
+    socks_unregister_session(&key);
+    return false;
+}
+
+/*
+ * c2o → origin_fd (solo RELAY)
+ * Retorna false si la sesión se cerró por error de I/O
+ */
+static bool socks_flush_origin(struct socks_session *session)
+{
+    size_t pending = 0;
+    uint8_t *ptr;
+
+    if (session == NULL || session->origin_fd < 0)
+    {
+        return true;
+    }
+
+    ptr = buffer_read_ptr(&session->c2o, &pending);
+    if (pending == 0)
+    {
+        return true;
+    }
+
+    const ssize_t n = write(session->origin_fd, ptr, pending);
+    if (n < 0)
+    {
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+        {
+            return true;
+        }
+        socks_session_close_from_origin(session);
+        return false;
+    }
+
+    buffer_read_adv(&session->c2o, n);
+    buffer_compact(&session->c2o);
+    socks_session_touch(session);
+    if (session->srv != NULL && session->srv->store != NULL &&
+        session->store_id != STORE_SESSION_INVALID)
+    {
+        store_session_add_bytes(session->srv->store,
+                                session->store_id,
+                                (uint64_t)n,
+                                0);
+    }
+    return true;
+}
+
+/* RELAY: origen → o2c → cliente (write inmediato si hay datos). */
 static void socks_origin_read(struct selector_key *key)
 {
     struct socks_session *session = key->data;
@@ -774,13 +903,17 @@ static void socks_origin_read(struct selector_key *key)
                                 0,
                                 (uint64_t)n);
     }
+    if (!socks_flush_client(session))
+    {
+        return;
+    }
     selector_set_interest(key->s, session->client_fd, socks_client_interest(session));
     selector_set_interest_key(key, socks_origin_interest(session));
 }
 
 /*
  * ORIGIN_CONNECTING: primer WRITE confirma connect().
- * RELAY: drena c2o hacia el socket del destino.
+ * RELAY: drena c2o hacia el socket del destino
  */
 static void socks_origin_write(struct selector_key *key)
 {
@@ -792,37 +925,9 @@ static void socks_origin_write(struct selector_key *key)
         return;
     }
 
-    size_t pending = 0;
-    uint8_t *ptr = buffer_read_ptr(&session->c2o, &pending);
-
-    if (pending == 0)
+    if (!socks_flush_origin(session))
     {
-        selector_set_interest_key(key, socks_origin_interest(session));
         return;
-    }
-
-    const ssize_t n = write(key->fd, ptr, pending);
-    if (n < 0)
-    {
-        if (errno == EAGAIN || errno == EWOULDBLOCK)
-        {
-            selector_set_interest_key(key, socks_origin_interest(session));
-            return;
-        }
-        socks_session_close_from_origin(session);
-        return;
-    }
-
-    buffer_read_adv(&session->c2o, n);
-    buffer_compact(&session->c2o);
-    socks_session_touch(session);
-    if (session->srv != NULL && session->srv->store != NULL &&
-        session->store_id != STORE_SESSION_INVALID)
-    {
-        store_session_add_bytes(session->srv->store,
-                                session->store_id,
-                                (uint64_t)n,
-                                0);
     }
     selector_set_interest_key(key, socks_origin_interest(session));
     selector_set_interest(key->s, session->client_fd, socks_client_interest(session));
@@ -1082,6 +1187,14 @@ static void socks_expire_session_pre_relay(struct socks_session *session)
 
     session->close_after_flush = true;
     session->stm.current = session->stm.states + SOCKS_ST_DONE;
+    if (!socks_flush_client(session))
+    {
+        return;
+    }
+    if (!socks_close_if_flushed(session))
+    {
+        return;
+    }
     selector_set_interest(session->srv->selector,
                           session->client_fd,
                           socks_client_interest(session));
@@ -1240,7 +1353,10 @@ static const fd_handler socks_passive_handler = {
  * Intereses del client_fd (misma idea que echo_client_interest, con dos buffers):
  *
  *   c2o con espacio  → OP_READ  (leer más bytes del browser)
- *   o2c con datos    → OP_WRITE (enviar respuesta SOCKS o datos del relay)
+ *   o2c con datos    → OP_WRITE (resume tras EAGAIN / escritura parcial)
+ *
+ * Tras un read se intenta write inmediato (socks_flush_*); OP_WRITE solo
+ * queda armado si aún hay bytes pendientes.
  */
 fd_interest socks_client_interest(struct socks_session *session)
 {
@@ -1267,8 +1383,8 @@ static void socks_unregister_session(struct selector_key *key)
  * READ del browser: socket → c2o.
  *
  * Antes de RELAY: stm_handler_read consume c2o (greeting, auth, CONNECT).
- * En RELAY: solo acumulamos bytes en c2o y despertamos origin_fd para que
- * escriba hacia el destino (no pasamos por el STM).
+ * En RELAY: acumulamos en c2o e intentamos write inmediato al origen.
+ * Respuestas en o2c también se flushean de inmediato cuando se pueden.
  */
 static void socks_client_read(struct selector_key *key)
 {
@@ -1310,9 +1426,13 @@ static void socks_client_read(struct selector_key *key)
 
     if (stm_state(&session->stm) == SOCKS_ST_RELAY)
     {
-        /* c2o tiene datos nuevos → avisar al origen que puede escribir */
+        /* c2o tiene datos nuevos → write inmediato al origen si es posible */
         if (session->origin_fd >= 0)
         {
+            if (!socks_flush_origin(session))
+            {
+                return;
+            }
             selector_set_interest(session->srv->selector,
                                   session->origin_fd,
                                   socks_origin_interest(session));
@@ -1320,50 +1440,54 @@ static void socks_client_read(struct selector_key *key)
     }
     else
     {
-        stm_handler_read(&session->stm, key);
+
+        // Un solo read() puede traer el final de un mensaje SOCKS y el comienzo del siguiente
+        // drenaje de c2o mientras sigamos en una fase de parseo del handshake.
+        while (buffer_can_read(&session->c2o))
+        {
+            const unsigned st = stm_state(&session->stm);
+
+            if (st != SOCKS_ST_AUTH_GREETING && st != SOCKS_ST_AUTH_USERPASS &&
+                st != SOCKS_ST_REQUEST)
+            {
+                break;
+            }
+            stm_handler_read(&session->stm, key);
+        }
+
+        if (buffer_can_read(&session->o2c))
+        {
+            if (!socks_flush_client(session))
+            {
+                return;
+            }
+        }
+    }
+
+    if (!socks_close_if_flushed(session))
+    {
+        return;
     }
 
     selector_set_interest_key(key, socks_client_interest(session));
 }
 
 /*
- * WRITE hacia el browser: o2c → socket.
+ * WRITE hacia el browser: o2c → socket (resume tras EAGAIN / parcial).
  *
- * Aquí se enviarán las respuestas SOCKS ([05][02], [01][00], reply CONNECT)
- * y luego los bytes del relay en la fase RELAY.
+ * Aquí se envían respuestas SOCKS y bytes del relay que no se pudieron
+ * flushear de inmediato tras el read.
  */
 static void socks_client_write(struct selector_key *key)
 {
     struct socks_session *session = key->data;
-    size_t pending = 0;
-    uint8_t *ptr = buffer_read_ptr(&session->o2c, &pending);
 
-    if (pending == 0)
+    if (!socks_flush_client(session))
     {
-        selector_set_interest_key(key, socks_client_interest(session));
         return;
     }
-
-    const ssize_t n = write(key->fd, ptr, pending);
-    if (n < 0)
+    if (!socks_close_if_flushed(session))
     {
-        if (errno == EAGAIN || errno == EWOULDBLOCK)
-        {
-            selector_set_interest_key(key, socks_client_interest(session));
-            return;
-        }
-        socks_unregister_session(key);
-        return;
-    }
-
-    buffer_read_adv(&session->o2c, n);
-    buffer_compact(&session->o2c);
-    socks_session_touch(session);
-    stm_handler_write(&session->stm, key);
-
-    if (session->close_after_flush && !buffer_can_read(&session->o2c))
-    {
-        socks_unregister_session(key);
         return;
     }
 
@@ -1375,6 +1499,14 @@ static void socks_client_block(struct selector_key *key)
 {
     struct socks_session *session = key->data;
     stm_handler_block(&session->stm, key);
+    if (!socks_flush_client(session))
+    {
+        return;
+    }
+    if (!socks_close_if_flushed(session))
+    {
+        return;
+    }
     selector_set_interest_key(key, socks_client_interest(session));
 }
 
