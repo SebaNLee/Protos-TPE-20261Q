@@ -110,7 +110,7 @@ static void run_server_child(int port_pipe_w, int stop_pipe_r)
 {
     const struct selector_init conf = {
         .signal = SIGUSR1,
-        .select_timeout = {.tv_sec = 0, .tv_nsec = 0},
+        .select_timeout = {.tv_sec = 1, .tv_nsec = 0},
     };
 
     if (selector_init(&conf) != SELECTOR_SUCCESS)

@@ -409,6 +409,10 @@ selector_status selector_unregister_fd(fd_selector s,
         goto finally;
     }
 
+    epoll_ctl(s->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+
+    item->interest = OP_NOOP;
+
     if (item->handler->handle_close != NULL)
     {
         struct selector_key key = {
@@ -418,10 +422,6 @@ selector_status selector_unregister_fd(fd_selector s,
         };
         item->handler->handle_close(&key);
     }
-
-    item->interest = OP_NOOP;
-
-    epoll_ctl(s->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
 
     memset(item, 0x00, sizeof(*item));
     item_init(item);
