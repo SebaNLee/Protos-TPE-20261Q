@@ -128,10 +128,10 @@ int select_menu(const char *title, const char *items[], int count)
 {
     int sel = 0;
 
-    printf("\n--- %s ---\n", title);
+    printf("\n");
     for (int i = 0; i < count; i++)
-        printf("  %c %s\n", i == sel ? '>' : ' ', items[i]);
-    printf("  [\xe2\x86\x91\xe2\x86\x93] Navegar  [Enter] Elegir  0. Salir\n");
+        printf("%c %s\n", i == sel ? '>' : ' ', items[i]);
+    printf("\n[Enter] Elegir  [\xe2\x86\x91\xe2\x86\x93] Navegar  [q] Salir\n");
 
     term_enter_raw();
 
@@ -152,7 +152,7 @@ int select_menu(const char *title, const char *items[], int count)
             term_exit_raw();
             return sel;
         }
-        else if (key == KEY_ESC || key == '0')
+        else if (key == KEY_ESC || key == 'q')
         {
             term_exit_raw();
             return count - 1;
@@ -162,12 +162,13 @@ int select_menu(const char *title, const char *items[], int count)
             continue;
         }
 
-        int n = count + 2;
+        int n = count + 3;
         printf("\033[%dA", n);
-        printf("\r\033[K--- %s ---\n", title);
+        printf("\r\033[K\n");
         for (int i = 0; i < count; i++)
-            printf("\r\033[K  %c %s\n", i == sel ? '>' : ' ', items[i]);
-        printf("\r\033[K  [\xe2\x86\x91\xe2\x86\x93] Navegar  [Enter] Elegir  0. Salir\n");
+            printf("\r\033[K%c %s\n", i == sel ? '>' : ' ', items[i]);
+        printf("\r\033[K\n");
+        printf("\r\033[K[Enter] Elegir  [\xe2\x86\x91\xe2\x86\x93] Navegar  [q] Salir\n");
     }
 }
 
