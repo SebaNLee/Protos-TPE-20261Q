@@ -21,7 +21,7 @@
  * Ver también el bloque "Integración con monitor_store" en socks.c.
  */
 
-#include <bits/sockaddr.h>
+#include <netinet/in.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -137,11 +137,19 @@ typedef struct store_active_session
 
 typedef struct acl_rule
 {
-    acl_rule_type rule_type;
+    acl_rule_type type;
     union
     {
         char host[STORE_MAX_DEST_HOST + 1];
-        struct sockaddr_storage address;
+        struct
+        {
+            bool is_v4;
+            union
+            {
+                struct in_addr ipv4;
+                struct in6_addr ipv6;
+            };
+        };
     };
     struct acl_rule *next;
 } acl_rule;
@@ -253,16 +261,16 @@ const char *store_log_state_str(store_log_state state);
 /* Devuelve etiqueta textual de la fase de una sesión SOCKS activa. */
 const char *store_session_phase_str(store_session_phase phase);
 
-bool store_deny_host(const char *hostname);
+bool store_deny_host(struct monitor_store *store, const char *hostname);
 
-bool store_deny_ip(const char *ip);
+bool store_deny_ip(struct monitor_store *store, const char *ip);
 
-bool store_undeny_host(const char *hostname);
+bool store_undeny_host(struct monitor_store *store, const char *hostname);
 
-bool store_undeny_ip(const char *ip);
+bool store_undeny_ip(struct monitor_store *store, const char *ip);
 
-bool is_host_denied(const char *hostname);
+bool is_host_denied(const struct monitor_store *store, const char *hostname);
 
-bool is_ip_denied(const char *ip);
+bool is_ip_denied(const struct monitor_store *store, const char *ip);
 
 #endif

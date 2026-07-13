@@ -7,6 +7,7 @@
  * monitor_commands.c. Un solo hilo del selector lo modifica.
  */
 
+#include "netutils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,6 +43,12 @@ struct monitor_store
     uint32_t timeout;
     uint32_t sessions_cap;
     uint32_t io_buffer_size;
+
+    acl_rule *denied_hosts;
+    acl_rule *last_denied_host;
+
+    acl_rule *denied_addresses;
+    acl_rule *last_denied_addr;
 
     struct store_session_node *sessions;
     size_t sessions_slots;
@@ -866,3 +873,60 @@ const char *store_session_phase_str(store_session_phase phase)
         return "UNKNOWN";
     }
 }
+
+static bool add_host_rule(struct monitor_store *store, acl_rule *rule)
+{
+    if (store->last_denied_host == NULL)
+    {
+        store->denied_hosts = store->last_denied_host = rule;
+        return true;
+    }
+
+    store->last_denied_host->next = rule;
+    store->last_denied_host = rule;
+}
+
+static bool add_ip_rule(struct monitor_store *store, acl_rule *rule)
+{
+    if (store->last_denied_addr == NULL)
+    {
+        store->denied_addresses = store->last_denied_addr = rule;
+        return true;
+    }
+
+    store->last_denied_addr->next = rule;
+    store->last_denied_addr = rule;
+}
+
+bool store_deny_host(struct monitor_store *store, const char *hostname)
+{
+    if (is_host_denied(store, hostname))
+        return false;
+
+    acl_rule *rule = calloc(1, sizeof(acl_rule));
+    rule->type = ACL_DENIED_HOST;
+    strcpy(rule->host, hostname);
+
+    add_host_rule(store, rule);
+}
+
+bool store_deny_ip(struct monitor_store *store, const char *ip)
+{
+    if (is_ip_denied(store, ip))
+        return false;
+
+    acl_rule *rule = calloc(1, sizeof(acl_rule));
+    rule->type = ACL_DENIED_ADDRESS;
+
+    // TODO parse ip
+
+    add_ip_rule(store, rule);
+}
+
+bool store_undeny_host(struct monitor_store *store, const char *hostname);
+
+bool store_undeny_ip(struct monitor_store *store, const char *ip);
+
+bool is_host_denied(const struct monitor_store *store, const char *hostname);
+
+bool is_ip_denied(const struct monitor_store *store, const char *ip);
