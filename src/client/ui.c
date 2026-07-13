@@ -188,7 +188,7 @@ const char *fmt_bytes(uint64_t bytes)
 
 void show_lines(const char *title, char lines[][MAX_RESP_LINE_LEN], int count, int skip)
 {
-    printf("\n--- %s ---\n", title);
+    printf("\n%s\n", title);
     for (int i = skip; i < count; i++)
     {
         const char *line = lines[i];

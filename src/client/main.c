@@ -124,7 +124,7 @@ static void screen_stats(int fd)
 {
     uint64_t total = 0, conc = 0, up = 0, down = 0;
 
-    printf("\n");
+    printf("\nEstadisticas\n");
     if (!cmd_stats(fd, &total, &conc, &up, &down))
     {
         printf("  Error al obtener estadisticas\n");
@@ -151,11 +151,11 @@ static void screen_connections(int fd)
     }
     else if (count == 1 && strcmp(lines[0], "+OK") == 0)
     {
-        printf("\n  No hay conexiones activas\n");
+        printf("\nConexiones activas\n  No hay conexiones activas\n");
     }
     else
     {
-        show_lines("Conexiones Activas", lines, count, 0);
+        show_lines("Conexiones activas", lines, count, 0);
     }
 
     wait_enter();
@@ -172,7 +172,7 @@ static void screen_users(int fd)
     }
     else
     {
-        show_lines("Usuarios Registrados", lines, count, 0);
+        show_lines("Usuarios registrados", lines, count, 0);
     }
 
     wait_enter();
@@ -184,7 +184,7 @@ static void screen_config(int fd)
 
     while (1)
     {
-        printf("\n--- Configuracion ---\n");
+        printf("\nConfiguracion\n");
         for (int i = 0; i < config_count; i++)
         {
             printf("  %d. %s [%u] (%u-%u)\n",
@@ -220,12 +220,12 @@ static void screen_add_user(int fd)
     char pass[MAX_INPUT_LEN];
     char err[MAX_RESP_LINE_LEN];
 
-    printf("\n");
-    input_line("Usuario: ", user, sizeof(user));
+    printf("\nAgregar usuario\n");
+    input_line("  Usuario: ", user, sizeof(user));
     if (user[0] == '\0')
         return;
 
-    input_password("Contrasenia: ", pass, sizeof(pass));
+    input_password("  Contrasenia: ", pass, sizeof(pass));
     if (pass[0] == '\0')
         return;
 
@@ -249,8 +249,8 @@ static void screen_del_user(int fd)
     char user[MAX_INPUT_LEN];
     char err[MAX_RESP_LINE_LEN];
 
-    printf("\n");
-    input_line("Usuario a eliminar: ", user, sizeof(user));
+    printf("\nEliminar usuario\n");
+    input_line("  Usuario a eliminar: ", user, sizeof(user));
     if (user[0] == '\0')
         return;
 
@@ -282,12 +282,12 @@ static void screen_set_password(int fd)
     char pass[MAX_INPUT_LEN];
     char err[MAX_RESP_LINE_LEN];
 
-    printf("\n");
-    input_line("Usuario: ", user, sizeof(user));
+    printf("\nCambiar contrasenia\n");
+    input_line("  Usuario: ", user, sizeof(user));
     if (user[0] == '\0')
         return;
 
-    input_password("Nueva contrasenia: ", pass, sizeof(pass));
+    input_password("  Nueva contrasenia: ", pass, sizeof(pass));
     if (pass[0] == '\0')
         return;
 
@@ -314,7 +314,7 @@ static void screen_access_log(int fd)
     }
     else
     {
-        show_lines("Log de Accesos", lines, count, 0);
+        show_lines("Log de accesos", lines, count, 1);
     }
 
     wait_enter();
