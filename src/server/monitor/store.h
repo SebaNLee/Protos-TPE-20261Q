@@ -21,6 +21,7 @@
  * Ver también el bloque "Integración con monitor_store" en socks.c.
  */
 
+#include <bits/sockaddr.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -63,9 +64,9 @@ typedef enum
 
 typedef enum
 {
-    STORE_CFG_TIMEOUT,         /* segundos de inactividad */
-    STORE_CFG_SESSIONS_CAP,    /* tope de clientes SOCKS simultáneos (CONFIG max_connections) */
-    STORE_CFG_IO_BUFFER_SIZE,  /* tamaño de buffer para sesiones nuevas */
+    STORE_CFG_TIMEOUT,        /* segundos de inactividad */
+    STORE_CFG_SESSIONS_CAP,   /* tope de clientes SOCKS simultáneos (CONFIG max_connections) */
+    STORE_CFG_IO_BUFFER_SIZE, /* tamaño de buffer para sesiones nuevas */
 } store_config_key;
 
 typedef enum
@@ -90,6 +91,12 @@ typedef enum
     STORE_SESSION_RELAY,      /* tunel activo cliente - destino */
     STORE_SESSION_DONE,
 } store_session_phase;
+
+typedef enum
+{
+    ACL_DENIED_HOST,
+    ACL_DENIED_ADDRESS
+} acl_rule_type;
 
 typedef uint32_t store_session_id;
 typedef uint32_t store_log_id;
@@ -127,6 +134,17 @@ typedef struct store_active_session
     uint64_t bytes_up;
     uint64_t bytes_down;
 } store_active_session;
+
+typedef struct acl_rule
+{
+    acl_rule_type rule_type;
+    union
+    {
+        char host[STORE_MAX_DEST_HOST + 1];
+        struct sockaddr_storage address;
+    };
+    struct acl_rule *next;
+} acl_rule;
 
 struct monitor_store;
 
@@ -234,5 +252,17 @@ const char *store_log_state_str(store_log_state state);
 
 /* Devuelve etiqueta textual de la fase de una sesión SOCKS activa. */
 const char *store_session_phase_str(store_session_phase phase);
+
+bool store_deny_host(const char *hostname);
+
+bool store_deny_ip(const char *ip);
+
+bool store_undeny_host(const char *hostname);
+
+bool store_undeny_ip(const char *ip);
+
+bool is_host_denied(const char *hostname);
+
+bool is_ip_denied(const char *ip);
 
 #endif

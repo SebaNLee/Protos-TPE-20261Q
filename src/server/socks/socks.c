@@ -294,14 +294,15 @@ static bool socks_send_connect_reply(struct socks_session *session, uint8_t rep)
 }
 
 /* REP del reply CONNECT (RFC 1928). */
-#define SOCKS_REP_SUCCEEDED              0x00
-#define SOCKS_REP_GENERAL_FAILURE        0x01
-#define SOCKS_REP_NETWORK_UNREACHABLE    0x03
-#define SOCKS_REP_HOST_UNREACHABLE       0x04
-#define SOCKS_REP_CONNECTION_REFUSED     0x05
-#define SOCKS_REP_TTL_EXPIRED              0x06
-#define SOCKS_REP_COMMAND_NOT_SUPPORTED  0x07
-#define SOCKS_REP_ATYP_NOT_SUPPORTED     0x08
+#define SOCKS_REP_SUCCEEDED 0x00
+#define SOCKS_REP_GENERAL_FAILURE 0x01
+#define SOCKS_REP_DENIED_BY_RULESET 0x02
+#define SOCKS_REP_NETWORK_UNREACHABLE 0x03
+#define SOCKS_REP_HOST_UNREACHABLE 0x04
+#define SOCKS_REP_CONNECTION_REFUSED 0x05
+#define SOCKS_REP_TTL_EXPIRED 0x06
+#define SOCKS_REP_COMMAND_NOT_SUPPORTED 0x07
+#define SOCKS_REP_ATYP_NOT_SUPPORTED 0x08
 
 /*
  * Mapea errno de connect() al REP correspondiente.
