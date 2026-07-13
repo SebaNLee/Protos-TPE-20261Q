@@ -66,19 +66,25 @@ static bool screen_login(int fd)
     char pass[MAX_INPUT_LEN];
     char err[MAX_RESP_LINE_LEN];
 
+    printf("\033[s");
+
     while (1)
     {
-        printf("\033[s");
+        printf("\n");
         input_line("Usuario: ", user, sizeof(user));
         if (user[0] == '\0')
+        {
+            printf("\033[u\033[J");
             return false;
+        }
 
         input_password("Contrasenia: ", pass, sizeof(pass));
 
         printf("Autenticando...\n");
         if (cmd_auth(fd, user, pass, err, sizeof(err)))
         {
-            printf("Autenticacion exitosa.\n");
+            printf("\033[u\033[J");
+            printf("Client: %s\n", user);
             return true;
         }
 
@@ -359,7 +365,7 @@ int main(int argc, char **argv)
     printf("Conectado.\n\n");
 
     printf("\033[3A\033[J");
-    printf("ChungusMonitor v1.0 - 127.0.0.1:%u\n\n", port);
+    printf("ChungusMonitor v1.0 - 127.0.0.1:%u\n", port);
 
     if (!screen_login(fd))
     {
