@@ -493,7 +493,24 @@ static void handle_deny_ip(struct monitor_commands_session *session, monitor_cmd
 
 static void handle_undeny(struct monitor_commands_session *session, monitor_cmd *cmd)
 {
-    // TODO
+    struct monitor_store *store = session->store;
+
+    if (cmd->argc < 2)
+    {
+        commands_wb_append(session, "-ERR syntax error\n");
+        return;
+    }
+
+    // Intenta ambos IP y FQDN. El comando bien formado solo devuelve error si ambos fallan.
+
+    if (store_undeny_host(store, cmd->args[1]) || store_undeny_ip(store, cmd->args[1]))
+    {
+        commands_wb_append(session, "+OK\n");
+    }
+    else
+    {
+        commands_wb_append(session, "-ERR rule not present\n");
+    }
 }
 
 static void handle_deny_list(struct monitor_commands_session *session, monitor_cmd *cmd)
