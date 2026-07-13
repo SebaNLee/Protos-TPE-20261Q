@@ -112,26 +112,26 @@ long input_number(const char *prompt, long min, long max)
         long val = strtol(buf, &end, 10);
         if (*end == '\0' && val >= min && val <= max)
             return val;
-        printf("  Valor invalido (rango %ld-%ld)\n", min, max);
+        printf("  Invalid (range %ld-%ld)\n", min, max);
     }
 }
 
 void wait_enter(void)
 {
-    printf("\nPresione Enter para continuar...");
+    printf("\nPress Enter to continue...");
     fflush(stdout);
     char buf[64];
     fgets(buf, sizeof(buf), stdin);
 }
 
-int select_menu(const char *title, const char *items[], int count)
+int select_menu(const char *items[], int count, const char *quit_label)
 {
     int sel = 0;
 
     printf("\n");
     for (int i = 0; i < count; i++)
         printf("%c %s\n", i == sel ? '>' : ' ', items[i]);
-    printf("\n[Enter] Elegir  [\xe2\x86\x91\xe2\x86\x93] Navegar  [q] Salir\n");
+    printf("\n[Enter] Select  [\xe2\x86\x91\xe2\x86\x93] Navigate  [q] %s\n", quit_label);
 
     term_enter_raw();
 
@@ -168,7 +168,7 @@ int select_menu(const char *title, const char *items[], int count)
         for (int i = 0; i < count; i++)
             printf("\r\033[K%c %s\n", i == sel ? '>' : ' ', items[i]);
         printf("\r\033[K\n");
-        printf("\r\033[K[Enter] Elegir  [\xe2\x86\x91\xe2\x86\x93] Navegar  [q] Salir\n");
+        printf("\r\033[K[Enter] Select  [\xe2\x86\x91\xe2\x86\x93] Navigate  [q] %s\n", quit_label);
     }
 }
 

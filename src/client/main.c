@@ -23,9 +23,9 @@ typedef struct
 } config_param;
 
 static config_param params[3] = {
-    {"timeout", "Tiempo maximo inactividad (s)", 0, 86400, CFG_TIMEOUT_DEFAULT},
-    {"max_connections", "Maximo conexiones simultaneas", 1, 16384, CFG_MAX_CONN_DEFAULT},
-    {"io_buffer_size", "Tamano buffer I/O (bytes)", 1024, 65536, CFG_IO_BUF_DEFAULT},
+    {"timeout", "Max idle time (seconds)", 0, 86400, CFG_TIMEOUT_DEFAULT},
+    {"max_connections", "Max concurrent conns", 1, 16384, CFG_MAX_CONN_DEFAULT},
+    {"io_buffer_size", "I/O buffer size (bytes)", 1024, 65536, CFG_IO_BUF_DEFAULT},
 };
 
 static int config_count = 3;
@@ -47,15 +47,15 @@ typedef struct
 } menu_item;
 
 static menu_item main_menu[] = {
-    {"Estadisticas", screen_stats},
-    {"Conexiones activas", screen_connections},
-    {"Usuarios registrados", screen_users},
-    {"Configuracion", screen_config},
-    {"Agregar usuario", screen_add_user},
-    {"Eliminar usuario", screen_del_user},
-    {"Cambiar contrasenia", screen_set_password},
-    {"Log de accesos", screen_access_log},
-    {"Salir", NULL},
+    {"Stats", screen_stats},
+    {"Active connections", screen_connections},
+    {"Registered users", screen_users},
+    {"Configuration", screen_config},
+    {"Add user", screen_add_user},
+    {"Delete user", screen_del_user},
+    {"Change password", screen_set_password},
+    {"Access log", screen_access_log},
+    {"Quit", NULL},
 };
 
 static int menu_count = sizeof(main_menu) / sizeof(main_menu[0]);
@@ -71,25 +71,25 @@ static bool screen_login(int fd)
     while (1)
     {
         printf("\n");
-        input_line("Usuario: ", user, sizeof(user));
+        input_line("Username: ", user, sizeof(user));
         if (user[0] == '\0')
         {
             printf("\033[u\033[J");
             return false;
         }
 
-        input_password("Contrasenia: ", pass, sizeof(pass));
+        input_password("Password: ", pass, sizeof(pass));
 
-        printf("Autenticando...\n");
+        printf("Authenticating...\n");
         if (cmd_auth(fd, user, pass, err, sizeof(err)))
         {
             printf("\033[u\033[J");
-            printf("Client: %s\n", user);
+            printf("User: %s\n", user);
             return true;
         }
 
         printf("Error: %s\n", err);
-        printf("[Enter] Reintentar  [q] Salir\n");
+        printf("[Enter] Retry  [q] Quit\n");
 
         term_enter_raw();
         int key = term_getkey();
@@ -110,7 +110,7 @@ static void screen_main_menu(int fd)
     while (1)
     {
         printf("\033[s");
-        int opt = select_menu("Menu principal", labels, menu_count);
+        int opt = select_menu(labels, menu_count, "Quit");
 
         if (opt >= menu_count || opt < 0)
             return;
@@ -129,17 +129,17 @@ static void screen_stats(int fd)
 {
     uint64_t total = 0, conc = 0, up = 0, down = 0;
 
-    printf("\nEstadisticas\n");
+    printf("\nStats\n");
     if (!cmd_stats(fd, &total, &conc, &up, &down))
     {
-        printf("  Error al obtener estadisticas\n");
+        printf("  Error fetching stats\n");
     }
     else
     {
-        printf("  Conexiones totales:    %llu\n", (unsigned long long)total);
-        printf("  Conexiones activas:    %llu\n", (unsigned long long)conc);
-        printf("  Bytes subidos:         %llu\n", (unsigned long long)up);
-        printf("  Bytes bajados:         %llu\n", (unsigned long long)down);
+        printf("  %-22s %llu\n", "Total connections:", (unsigned long long)total);
+        printf("  %-22s %llu\n", "Active connections:", (unsigned long long)conc);
+        printf("  %-22s %llu\n", "Bytes uploaded:", (unsigned long long)up);
+        printf("  %-22s %llu\n", "Bytes downloaded:", (unsigned long long)down);
     }
 
     wait_enter();
@@ -152,15 +152,15 @@ static void screen_connections(int fd)
 
     if (count < 0)
     {
-        printf("\n  Error al obtener conexiones\n");
+        printf("\n  Error fetching connections\n");
     }
     else if (count == 1 && strcmp(lines[0], "+OK") == 0)
     {
-        printf("\nConexiones activas\n  No hay conexiones activas\n");
+        printf("\nActive connections\n  No active connections o7\n");
     }
     else
     {
-        show_lines("Conexiones activas", lines, count, 0);
+        show_lines("Active connections", lines, count, 0);
     }
 
     wait_enter();
@@ -173,11 +173,11 @@ static void screen_users(int fd)
 
     if (count < 0)
     {
-        printf("\n  Error al obtener usuarios\n");
+        printf("\n  Error fetching users\n");
     }
     else
     {
-        show_lines("Usuarios registrados", lines, count, 0);
+        show_lines("Registered users", lines, count, 0);
     }
 
     wait_enter();
@@ -194,13 +194,13 @@ static void screen_config(int fd)
         for (int i = 0; i < config_count; i++)
         {
             snprintf(labels_buf[i], sizeof(labels_buf[i]),
-                     "%s [%u]", params[i].label, params[i].value);
+                     "%-30s [%u]", params[i].label, params[i].value);
             labels[i] = labels_buf[i];
         }
-        labels[config_count] = "Volver";
+        labels[config_count] = "Back";
 
         printf("\033[s");
-        int sel = select_menu("Configuracion", labels, config_count + 1);
+        int sel = select_menu(labels, config_count + 1, "Back");
         if (sel < 0 || sel >= config_count)
         {
             printf("\033[u\033[J");
@@ -211,7 +211,7 @@ static void screen_config(int fd)
         printf("\033[%dA\033[J", n);
         printf("\n%s\n", params[sel].label);
 
-        long val = input_number("  Nuevo valor: ",
+        long val = input_number("  New value: ",
                                 (long)params[sel].min,
                                 (long)params[sel].max);
 
@@ -219,7 +219,7 @@ static void screen_config(int fd)
         if (cmd_config(fd, params[sel].name, (uint32_t)val, err, sizeof(err)))
         {
             params[sel].value = (uint32_t)val;
-            printf("  Configuracion actualizada.\n");
+            printf("  Configuration updated o7\n");
         }
         else
         {
@@ -237,21 +237,22 @@ static void screen_add_user(int fd)
     char pass[MAX_INPUT_LEN];
     char err[MAX_RESP_LINE_LEN];
 
-    printf("\nAgregar usuario\n");
-    input_line("  Usuario: ", user, sizeof(user));
+    printf("\nAdd user\n");
+    input_line("  Username: ", user, sizeof(user));
     if (user[0] == '\0')
         return;
 
-    input_password("  Contrasenia: ", pass, sizeof(pass));
+    input_password("  Password: ", pass, sizeof(pass));
     if (pass[0] == '\0')
         return;
 
-    input_line("Admin? (s/N): ", err, sizeof(err));
-    bool admin = (err[0] == 's' || err[0] == 'S');
+    input_line("Admin? (y/n): ", err, sizeof(err));
+    bool admin = (err[0] == 'y' || err[0] == 'Y');
 
+    printf("\n");
     if (cmd_add_user(fd, user, pass, admin, err, sizeof(err)))
     {
-        printf("  Usuario creado exitosamente.\n");
+        printf("  User created o7\n");
     }
     else
     {
@@ -266,24 +267,25 @@ static void screen_del_user(int fd)
     char user[MAX_INPUT_LEN];
     char err[MAX_RESP_LINE_LEN];
 
-    printf("\nEliminar usuario\n");
-    input_line("  Usuario a eliminar: ", user, sizeof(user));
+    printf("\nDelete user\n");
+    input_line("  Username: ", user, sizeof(user));
     if (user[0] == '\0')
         return;
 
-    printf("  Confirmar eliminacion de '%s'? (s/N): ", user);
+    printf("  Delete '%s'? (y/N): ", user);
     fflush(stdout);
     char buf[64];
     fgets(buf, sizeof(buf), stdin);
-    if (buf[0] != 's' && buf[0] != 'S')
+    if (buf[0] != 'y' && buf[0] != 'Y')
     {
-        printf("  Cancelado.\n");
+        printf("  Cancelled.\n");
         return;
     }
 
+    printf("\n");
     if (cmd_del_user(fd, user, err, sizeof(err)))
     {
-        printf("  Usuario eliminado.\n");
+        printf("  User deleted o7\n");
     }
     else
     {
@@ -299,18 +301,19 @@ static void screen_set_password(int fd)
     char pass[MAX_INPUT_LEN];
     char err[MAX_RESP_LINE_LEN];
 
-    printf("\nCambiar contrasenia\n");
-    input_line("  Usuario: ", user, sizeof(user));
+    printf("\nChange password\n");
+    input_line("  Username: ", user, sizeof(user));
     if (user[0] == '\0')
         return;
 
-    input_password("  Nueva contrasenia: ", pass, sizeof(pass));
+    input_password("  New password: ", pass, sizeof(pass));
     if (pass[0] == '\0')
         return;
 
+    printf("\n");
     if (cmd_set_password(fd, user, pass, err, sizeof(err)))
     {
-        printf("  Contrasenia actualizada.\n");
+        printf("  Password updated o7\n");
     }
     else
     {
@@ -327,11 +330,11 @@ static void screen_access_log(int fd)
 
     if (count < 0)
     {
-        printf("\n  Error al obtener log de accesos\n");
+        printf("\n  Error fetching access log\n");
     }
     else
     {
-        show_lines("Log de accesos", lines, count, 1);
+        show_lines("Access log", lines, count, 1);
     }
 
     wait_enter();
@@ -343,13 +346,13 @@ int main(int argc, char **argv)
 
     if (setup_flags(argc, argv, "p:h") != 0)
     {
-        fprintf(stderr, "Uso: %s [-p puerto]\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-p port]\n", argv[0]);
         return EXIT_FAILURE;
     }
 
     if (has_flag('h'))
     {
-        fprintf(stderr, "Uso: %s [-p puerto]\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-p port]\n", argv[0]);
         return EXIT_SUCCESS;
     }
 
@@ -358,13 +361,13 @@ int main(int argc, char **argv)
         long value = get_flag_long('p');
         if (value <= 0 || value > 65535)
         {
-            fprintf(stderr, "Uso: %s [-p puerto]\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-p port]\n", argv[0]);
             return EXIT_FAILURE;
         }
         port = (uint16_t)value;
     }
 
-    printf("Conectando a 127.0.0.1:%u...\n", port);
+    printf("Connecting to 127.0.0.1:%u...\n", port);
 
     int fd = connect_server("127.0.0.1", port);
     if (fd < 0)
@@ -380,7 +383,7 @@ int main(int argc, char **argv)
             break;
     }
 
-    printf("Conectado.\n\n");
+    printf("Connected.\n\n");
 
     printf("\033[3A\033[J");
     printf("ChungusMonitor v1.0 - 127.0.0.1:%u\n", port);
@@ -393,7 +396,7 @@ int main(int argc, char **argv)
 
     screen_main_menu(fd);
 
-    printf("\nDesconectando...\n");
+    printf("\nDisconnecting...\n");
     cmd_quit(fd);
     close(fd);
     return EXIT_SUCCESS;

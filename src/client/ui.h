@@ -26,7 +26,7 @@ void input_password(const char *prompt, char *buf, size_t max);
 long input_number(const char *prompt, long min, long max);
 void wait_enter(void);
 
-int select_menu(const char *title, const char *items[], int count);
+int select_menu(const char *items[], int count, const char *quit_label);
 
 const char *fmt_bytes(uint64_t bytes);
 void show_lines(const char *title, char lines[][MAX_RESP_LINE_LEN], int count, int skip);
