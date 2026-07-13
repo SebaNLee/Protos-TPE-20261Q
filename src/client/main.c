@@ -113,7 +113,8 @@ static void screen_main_menu(int fd)
         if (main_menu[opt].handler == NULL)
             return;
 
-        printf("\n");
+        int n = menu_count + 3;
+        printf("\033[%dA\033[J", n);
         main_menu[opt].handler(fd);
         printf("\033[u\033[J");
     }
@@ -132,8 +133,8 @@ static void screen_stats(int fd)
     {
         printf("  Conexiones totales:    %llu\n", (unsigned long long)total);
         printf("  Conexiones activas:    %llu\n", (unsigned long long)conc);
-        printf("  Bytes subidos:         %s\n", fmt_bytes(up));
-        printf("  Bytes bajados:         %s\n", fmt_bytes(down));
+        printf("  Bytes subidos:         %llu\n", (unsigned long long)up);
+        printf("  Bytes bajados:         %llu\n", (unsigned long long)down);
     }
 
     wait_enter();
@@ -146,7 +147,11 @@ static void screen_connections(int fd)
 
     if (count < 0)
     {
-        printf("  Error al obtener conexiones\n");
+        printf("\n  Error al obtener conexiones\n");
+    }
+    else if (count == 1 && strcmp(lines[0], "+OK") == 0)
+    {
+        printf("\n  No hay conexiones activas\n");
     }
     else
     {
@@ -163,7 +168,7 @@ static void screen_users(int fd)
 
     if (count < 0)
     {
-        printf("  Error al obtener usuarios\n");
+        printf("\n  Error al obtener usuarios\n");
     }
     else
     {
@@ -300,16 +305,12 @@ static void screen_set_password(int fd)
 
 static void screen_access_log(int fd)
 {
-    char filter[MAX_INPUT_LEN];
-    printf("\n");
-    input_line("Filtro de usuario (vacio = todos): ", filter, sizeof(filter));
-
     char lines[MAX_RESP_LINES][MAX_RESP_LINE_LEN];
-    int count = cmd_access_log(fd, filter, lines, MAX_RESP_LINES);
+    int count = cmd_access_log(fd, NULL, lines, MAX_RESP_LINES);
 
     if (count < 0)
     {
-        printf("  Error al obtener log de accesos\n");
+        printf("\n  Error al obtener log de accesos\n");
     }
     else
     {
