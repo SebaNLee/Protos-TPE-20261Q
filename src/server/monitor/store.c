@@ -7,7 +7,7 @@
  * monitor_commands.c. Un solo hilo del selector lo modifica.
  */
 
-#include "netutils.h"
+#include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -874,24 +874,24 @@ const char *store_session_phase_str(store_session_phase phase)
     }
 }
 
-static bool add_host_rule(struct monitor_store *store, acl_rule *rule)
+static void add_host_rule(struct monitor_store *store, acl_rule *rule)
 {
     if (store->last_denied_host == NULL)
     {
         store->denied_hosts = store->last_denied_host = rule;
-        return true;
+        return;
     }
 
     store->last_denied_host->next = rule;
     store->last_denied_host = rule;
 }
 
-static bool add_ip_rule(struct monitor_store *store, acl_rule *rule)
+static void add_ip_rule(struct monitor_store *store, acl_rule *rule)
 {
     if (store->last_denied_addr == NULL)
     {
         store->denied_addresses = store->last_denied_addr = rule;
-        return true;
+        return;
     }
 
     store->last_denied_addr->next = rule;
@@ -908,6 +908,7 @@ bool store_deny_host(struct monitor_store *store, const char *hostname)
     strcpy(rule->host, hostname);
 
     add_host_rule(store, rule);
+    return true;
 }
 
 bool store_deny_ip(struct monitor_store *store, const char *ip)
@@ -918,15 +919,131 @@ bool store_deny_ip(struct monitor_store *store, const char *ip)
     acl_rule *rule = calloc(1, sizeof(acl_rule));
     rule->type = ACL_DENIED_ADDRESS;
 
-    // TODO parse ip
+    if (inet_pton(AF_INET, ip, &rule->ipv4) == 1)
+    {
+        rule->is_v4 = true;
+    }
+    else if (inet_pton(AF_INET6, ip, &rule->ipv6) == 1)
+    {
+        rule->is_v4 = false;
+    }
+    else
+    {
+        free(rule);
+        return false;
+    }
 
     add_ip_rule(store, rule);
+    return true;
 }
 
-bool store_undeny_host(struct monitor_store *store, const char *hostname);
+static bool host_rule_match(const acl_rule *rule, const char *hostname)
+{
+    return strcmp(rule->host, hostname) == 0;
+}
 
-bool store_undeny_ip(struct monitor_store *store, const char *ip);
+static bool ip_rule_match(const acl_rule *rule, const char *ip)
+{
+    struct in_addr addr4;
+    struct in6_addr addr6;
 
-bool is_host_denied(const struct monitor_store *store, const char *hostname);
+    if (inet_pton(AF_INET, ip, &addr4) == 1)
+    {
+        return rule->is_v4 && memcmp(&rule->ipv4, &addr4, sizeof(addr4)) == 0;
+    }
 
-bool is_ip_denied(const struct monitor_store *store, const char *ip);
+    if (inet_pton(AF_INET6, ip, &addr6) == 1)
+    {
+        return !rule->is_v4 && memcmp(&rule->ipv6, &addr6, sizeof(addr6)) == 0;
+    }
+
+    return false;
+}
+
+bool is_host_denied(const struct monitor_store *store, const char *hostname)
+{
+    if (store == NULL || hostname == NULL)
+        return false;
+
+    for (const acl_rule *r = store->denied_hosts; r != NULL; r = r->next)
+    {
+        if (host_rule_match(r, hostname))
+            return true;
+    }
+
+    return false;
+}
+
+bool is_ip_denied(const struct monitor_store *store, const char *ip)
+{
+    if (store == NULL || ip == NULL)
+        return false;
+
+    for (const acl_rule *r = store->denied_addresses; r != NULL; r = r->next)
+    {
+        if (ip_rule_match(r, ip))
+            return true;
+    }
+
+    return false;
+}
+
+bool store_undeny_host(struct monitor_store *store, const char *hostname)
+{
+    if (store == NULL || hostname == NULL)
+        return false;
+
+    acl_rule *previous = NULL;
+    acl_rule *current = store->denied_hosts;
+
+    while (current != NULL)
+    {
+        if (host_rule_match(current, hostname))
+        {
+            if (previous == NULL)
+                store->denied_hosts = current->next;
+            else
+                previous->next = current->next;
+
+            if (store->last_denied_host == current)
+                store->last_denied_host = previous;
+
+            free(current);
+            return true;
+        }
+        previous = current;
+        current = current->next;
+    }
+
+    return false;
+}
+
+bool store_undeny_ip(struct monitor_store *store, const char *ip)
+{
+    if (store == NULL || ip == NULL)
+        return false;
+
+    acl_rule *previous = NULL;
+    acl_rule *current = store->denied_addresses;
+
+    while (current != NULL)
+    {
+        if (ip_rule_match(current, ip))
+        {
+            if (previous == NULL)
+                store->denied_addresses = current->next;
+            else
+                previous->next = current->next;
+
+            if (store->last_denied_addr == current)
+                store->last_denied_addr = previous;
+
+            free(current);
+            return true;
+        }
+        previous = current;
+        current = current->next;
+    }
+
+    return false;
+}
