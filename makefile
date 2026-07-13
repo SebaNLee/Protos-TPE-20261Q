@@ -35,7 +35,8 @@ TEST_BINARIES  = $(BUILD_FOLDER)/buffer_test \
                  $(BUILD_FOLDER)/request_test \
                  $(BUILD_FOLDER)/store_test \
                  $(BUILD_FOLDER)/monitor_commands_test \
-                 $(BUILD_FOLDER)/monitor_test
+                 $(BUILD_FOLDER)/monitor_test \
+                 $(BUILD_FOLDER)/socks_partial_read_test
 
 TARGETS        :=
 ifneq ($(SERVER_SOURCES),)
@@ -140,3 +141,15 @@ $(BUILD_FOLDER)/monitor_commands_test: src/server/monitor/test/monitor_commands_
 $(BUILD_FOLDER)/monitor_test: src/server/monitor/test/monitor_test.c src/server/monitor/monitor.c src/server/monitor/monitor_commands.c src/server/monitor/store.c src/shared/buffer.c src/shared/selector.c
 	mkdir -p $(BUILD_FOLDER)
 	$(COMPILER) $(COMPILER_FLAGS) -Isrc/server/monitor -Isrc/shared $^ $(CHECK_LIBS) -o $@
+
+$(BUILD_FOLDER)/socks_partial_read_test: src/server/socks/test/socks_partial_read_test.c \
+		src/server/socks/socks.c \
+		src/server/socks/greeting/greeting.c \
+		src/server/socks/auth/auth.c \
+		src/server/socks/request/request.c \
+		src/server/monitor/store.c \
+		src/shared/buffer.c \
+		src/shared/selector.c \
+		src/shared/stm.c
+	mkdir -p $(BUILD_FOLDER)
+	$(COMPILER) $(COMPILER_FLAGS) $^ $(CHECK_LIBS) -o $@
