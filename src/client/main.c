@@ -30,6 +30,23 @@ static config_param params[3] = {
 
 static int config_count = 3;
 
+static bool fetch_config_values(int fd)
+{
+    char err[MAX_RESP_LINE_LEN];
+
+    for (int i = 0; i < config_count; i++)
+    {
+        uint32_t val = 0;
+        if (!cmd_config_get(fd, params[i].name, &val, err, sizeof(err)))
+        {
+            return false;
+        }
+        params[i].value = val;
+    }
+
+    return true;
+}
+
 static bool screen_login(int fd);
 static void screen_stats(int fd);
 static void screen_connections(int fd);
@@ -196,6 +213,13 @@ static void screen_config(int fd)
     char err[MAX_RESP_LINE_LEN];
     const char *labels[config_count + 1];
     char labels_buf[config_count][64];
+
+    if (!fetch_config_values(fd))
+    {
+        printf("\n  Warning: could not refresh configuration from server\n");
+        wait_enter();
+        return;
+    }
 
     while (1)
     {
@@ -486,6 +510,11 @@ int main(int argc, char **argv)
     {
         close(fd);
         return EXIT_SUCCESS;
+    }
+
+    if (!fetch_config_values(fd))
+    {
+        fprintf(stderr, "Warning: could not load server configuration\n");
     }
 
     screen_main_menu(fd);
