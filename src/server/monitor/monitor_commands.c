@@ -260,6 +260,9 @@ static void handle_users(struct monitor_commands_session *session)
 }
 
 /*
+ * CONFIG <param>           → +OK <value>  (lectura)
+ * CONFIG <param> <value>   → +OK          (escritura)
+ *
  * Valida rangos en la capa protocolo; store_config_set repite límites en el store.
  * Params: timeout (0..86400), max_connections/sessions_cap (STORE_SESSIONS_CAP_MIN..STORE_SESSIONS_CAP_MAX),
  *         io_buffer_size (1024..65536).
@@ -269,7 +272,7 @@ static void handle_config(struct monitor_commands_session *session, monitor_cmd 
     store_config_key key;
     char *end = NULL;
 
-    if (cmd->argc < 3)
+    if (cmd->argc < 2)
     {
         commands_wb_append(session, "-ERR syntax error\n");
         return;
@@ -278,6 +281,20 @@ static void handle_config(struct monitor_commands_session *session, monitor_cmd 
     if (!store_config_key_from_name(cmd->args[1], &key))
     {
         commands_wb_append(session, "-ERR unknown param\n");
+        return;
+    }
+
+    if (cmd->argc == 2)
+    {
+        uint32_t current = 0;
+
+        if (!store_config_get(session->store, key, &current))
+        {
+            commands_wb_append(session, "-ERR unknown param\n");
+            return;
+        }
+
+        commands_wb_appendf(session, "+OK %u\n", current);
         return;
     }
 

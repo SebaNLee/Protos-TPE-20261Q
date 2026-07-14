@@ -177,6 +177,44 @@ int cmd_access_log(int fd, const char *filter, char lines[][MAX_RESP_LINE_LEN], 
     return cmd_list(fd, cmd, lines, max_lines);
 }
 
+bool cmd_config_get(int fd, const char *param, uint32_t *value, char *err, size_t err_sz)
+{
+    char cmd[LINE_BUF_SIZE];
+    char lines[2][MAX_RESP_LINE_LEN];
+
+    snprintf(cmd, sizeof(cmd), "CONFIG %s\n", param);
+    if (write_all(fd, cmd) < 0)
+    {
+        snprintf(err, err_sz, "Error de escritura");
+        return false;
+    }
+
+    int n = read_response(fd, lines, 2);
+    if (n < 1)
+    {
+        snprintf(err, err_sz, "Conexion perdida");
+        return false;
+    }
+
+    if (lines[0][0] == '-' && lines[0][1] == 'E' &&
+        lines[0][2] == 'R' && lines[0][3] == 'R')
+    {
+        const char *msg = lines[0][4] == ' ' ? lines[0] + 5 : lines[0] + 4;
+        snprintf(err, err_sz, "%s", msg);
+        return false;
+    }
+
+    unsigned int parsed = 0;
+    if (sscanf(lines[0], "+OK %u", &parsed) != 1)
+    {
+        snprintf(err, err_sz, "respuesta invalida");
+        return false;
+    }
+
+    *value = parsed;
+    return true;
+}
+
 bool cmd_config(int fd, const char *param, uint32_t value, char *err, size_t err_sz)
 {
     char cmd[LINE_BUF_SIZE];
