@@ -208,6 +208,32 @@ bool cmd_set_password(int fd, const char *user, const char *pass, char *err, siz
     return cmd_simple(fd, cmd, err, err_sz);
 }
 
+bool cmd_deny_host(int fd, const char *hostname, char *err, size_t err_sz)
+{
+    char cmd[LINE_BUF_SIZE];
+    snprintf(cmd, sizeof(cmd), "DENY_HOST %s\n", hostname);
+    return cmd_simple(fd, cmd, err, err_sz);
+}
+
+bool cmd_deny_ip(int fd, const char *ip, char *err, size_t err_sz)
+{
+    char cmd[LINE_BUF_SIZE];
+    snprintf(cmd, sizeof(cmd), "DENY_IP %s\n", ip);
+    return cmd_simple(fd, cmd, err, err_sz);
+}
+
+bool cmd_undeny(int fd, const char *target, char *err, size_t err_sz)
+{
+    char cmd[LINE_BUF_SIZE];
+    snprintf(cmd, sizeof(cmd), "UNDENY %s\n", target);
+    return cmd_simple(fd, cmd, err, err_sz);
+}
+
+int cmd_deny_list(int fd, char lines[][MAX_RESP_LINE_LEN], int max_lines)
+{
+    return cmd_list(fd, "DENY_LIST\n", lines, max_lines);
+}
+
 void cmd_quit(int fd)
 {
     write_all(fd, "QUIT\n");

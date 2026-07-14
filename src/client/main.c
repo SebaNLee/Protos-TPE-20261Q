@@ -39,6 +39,10 @@ static void screen_add_user(int fd);
 static void screen_del_user(int fd);
 static void screen_set_password(int fd);
 static void screen_access_log(int fd);
+static void screen_deny_host(int fd);
+static void screen_deny_ip(int fd);
+static void screen_undeny(int fd);
+static void screen_deny_list(int fd);
 
 typedef struct
 {
@@ -55,6 +59,10 @@ static menu_item main_menu[] = {
     {"Delete user", screen_del_user},
     {"Change password", screen_set_password},
     {"Access log", screen_access_log},
+    {"Deny host", screen_deny_host},
+    {"Deny IP", screen_deny_ip},
+    {"Undeny", screen_undeny},
+    {"Deny list", screen_deny_list},
     {"Quit", NULL},
 };
 
@@ -335,6 +343,92 @@ static void screen_access_log(int fd)
     else
     {
         show_lines("Access log", lines, count, 1);
+    }
+
+    wait_enter();
+}
+
+static void screen_deny_host(int fd)
+{
+    char hostname[MAX_INPUT_LEN];
+    char err[MAX_RESP_LINE_LEN];
+
+    printf("\nDeny host\n");
+    input_line("  Hostname: ", hostname, sizeof(hostname));
+    if (hostname[0] == '\0')
+        return;
+
+    printf("\n");
+    if (cmd_deny_host(fd, hostname, err, sizeof(err)))
+    {
+        printf("  Host denied o7\n");
+    }
+    else
+    {
+        printf("  Error: %s\n", err);
+    }
+
+    wait_enter();
+}
+
+static void screen_deny_ip(int fd)
+{
+    char ip[MAX_INPUT_LEN];
+    char err[MAX_RESP_LINE_LEN];
+
+    printf("\nDeny IP\n");
+    input_line("  IP address: ", ip, sizeof(ip));
+    if (ip[0] == '\0')
+        return;
+
+    printf("\n");
+    if (cmd_deny_ip(fd, ip, err, sizeof(err)))
+    {
+        printf("  IP denied o7\n");
+    }
+    else
+    {
+        printf("  Error: %s\n", err);
+    }
+
+    wait_enter();
+}
+
+static void screen_undeny(int fd)
+{
+    char target[MAX_INPUT_LEN];
+    char err[MAX_RESP_LINE_LEN];
+
+    printf("\nUndeny\n");
+    input_line("  Hostname or IP: ", target, sizeof(target));
+    if (target[0] == '\0')
+        return;
+
+    printf("\n");
+    if (cmd_undeny(fd, target, err, sizeof(err)))
+    {
+        printf("  Rule removed o7\n");
+    }
+    else
+    {
+        printf("  Error: %s\n", err);
+    }
+
+    wait_enter();
+}
+
+static void screen_deny_list(int fd)
+{
+    char lines[MAX_RESP_LINES][MAX_RESP_LINE_LEN];
+    int count = cmd_deny_list(fd, lines, MAX_RESP_LINES);
+
+    if (count < 0)
+    {
+        printf("\n  Error fetching deny list\n");
+    }
+    else
+    {
+        show_lines("Denied hosts and IPs", lines, count, 0);
     }
 
     wait_enter();

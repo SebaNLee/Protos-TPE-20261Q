@@ -24,6 +24,10 @@ bool cmd_config(int fd, const char *param, uint32_t value, char *err, size_t err
 bool cmd_add_user(int fd, const char *user, const char *pass, bool admin, char *err, size_t err_sz);
 bool cmd_del_user(int fd, const char *user, char *err, size_t err_sz);
 bool cmd_set_password(int fd, const char *user, const char *pass, char *err, size_t err_sz);
+bool cmd_deny_host(int fd, const char *hostname, char *err, size_t err_sz);
+bool cmd_deny_ip(int fd, const char *ip, char *err, size_t err_sz);
+bool cmd_undeny(int fd, const char *target, char *err, size_t err_sz);
+int cmd_deny_list(int fd, char lines[][MAX_RESP_LINE_LEN], int max_lines);
 void cmd_quit(int fd);
 
 #endif
