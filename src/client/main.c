@@ -1,138 +1,437 @@
 #include <errno.h>
-#include <netdb.h>
-#include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-#include <sys/socket.h>
-
+#include "client/protocol.h"
+#include "client/ui.h"
 #include "shared/flags.h"
 
-/*
- * client/main.c — REPL de monitoreo del proxy.
- *
- * Se conecta al puerto de monitoreo (-p, default 8080) y permite
- * ejecutar comandos del protocolo ChungusMonitor a modo REPL.
- */
+#define CFG_TIMEOUT_DEFAULT 0
+#define CFG_MAX_CONN_DEFAULT 1024
+#define CFG_IO_BUF_DEFAULT 4096
 
-#define LINE_BUF_SIZE 4096
-
-static void usage(const char *program)
+typedef struct
 {
-    fprintf(stderr, "Usage: %s [-p port]\n", program);
+    const char *name;
+    const char *label;
+    uint32_t min;
+    uint32_t max;
+    uint32_t value;
+} config_param;
+
+static config_param params[3] = {
+    {"timeout", "Max idle time (seconds)", 0, 86400, CFG_TIMEOUT_DEFAULT},
+    {"max_connections", "Max concurrent conns", 1, 16384, CFG_MAX_CONN_DEFAULT},
+    {"io_buffer_size", "I/O buffer size (bytes)", 1024, 65536, CFG_IO_BUF_DEFAULT},
+};
+
+static int config_count = 3;
+
+static bool screen_login(int fd);
+static void screen_stats(int fd);
+static void screen_connections(int fd);
+static void screen_users(int fd);
+static void screen_config(int fd);
+static void screen_add_user(int fd);
+static void screen_del_user(int fd);
+static void screen_set_password(int fd);
+static void screen_access_log(int fd);
+static void screen_deny_host(int fd);
+static void screen_deny_ip(int fd);
+static void screen_undeny(int fd);
+static void screen_deny_list(int fd);
+
+typedef struct
+{
+    const char *label;
+    void (*handler)(int fd);
+} menu_item;
+
+static menu_item main_menu[] = {
+    {"Stats", screen_stats},
+    {"Active connections", screen_connections},
+    {"Registered users", screen_users},
+    {"Configuration", screen_config},
+    {"Add user", screen_add_user},
+    {"Delete user", screen_del_user},
+    {"Change password", screen_set_password},
+    {"Access log", screen_access_log},
+    {"Deny host", screen_deny_host},
+    {"Deny IP", screen_deny_ip},
+    {"Undeny", screen_undeny},
+    {"Deny list", screen_deny_list},
+    {"Quit", NULL},
+};
+
+static int menu_count = sizeof(main_menu) / sizeof(main_menu[0]);
+
+static bool screen_login(int fd)
+{
+    char user[MAX_INPUT_LEN];
+    char pass[MAX_INPUT_LEN];
+    char err[MAX_RESP_LINE_LEN];
+
+    printf("\033[s");
+
+    while (1)
+    {
+        printf("\n");
+        input_line("Username: ", user, sizeof(user));
+        if (user[0] == '\0')
+        {
+            printf("\033[u\033[J");
+            return false;
+        }
+
+        input_password("Password: ", pass, sizeof(pass));
+
+        printf("Authenticating...\n");
+        if (cmd_auth(fd, user, pass, err, sizeof(err)))
+        {
+            printf("\033[u\033[J");
+            printf("User: %s\n", user);
+            return true;
+        }
+
+        printf("Error: %s\n", err);
+        printf("[Enter] Retry  [q] Quit\n");
+
+        term_enter_raw();
+        int key = term_getkey();
+        term_exit_raw();
+
+        if (key == 'q' || key == KEY_ESC)
+            return false;
+        printf("\033[u\033[J");
+    }
 }
 
-static int connect_server(const char *host, uint16_t port)
+static void screen_main_menu(int fd)
 {
-    struct addrinfo hints = {
-        .ai_family = AF_UNSPEC,
-        .ai_socktype = SOCK_STREAM,
-    };
-    struct addrinfo *result = NULL;
-    char port_str[8];
-    int fd = -1;
+    const char *labels[menu_count];
+    for (int i = 0; i < menu_count; i++)
+        labels[i] = main_menu[i].label;
 
-    snprintf(port_str, sizeof(port_str), "%u", port);
-    if (getaddrinfo(host, port_str, &hints, &result) != 0)
+    while (1)
     {
-        return -1;
-    }
+        printf("\033[s");
+        int opt = select_menu(labels, menu_count, "Quit");
 
-    for (struct addrinfo *cursor = result; cursor != NULL; cursor = cursor->ai_next)
-    {
-        fd = socket(cursor->ai_family, cursor->ai_socktype, cursor->ai_protocol);
-        if (fd < 0)
-        {
-            continue;
-        }
-        if (connect(fd, cursor->ai_addr, cursor->ai_addrlen) == 0)
-        {
-            break;
-        }
-        close(fd);
-        fd = -1;
-    }
+        if (opt >= menu_count || opt < 0)
+            return;
 
-    freeaddrinfo(result);
-    return fd;
+        if (main_menu[opt].handler == NULL)
+            return;
+
+        int n = menu_count + 3;
+        printf("\033[%dA\033[J", n);
+        main_menu[opt].handler(fd);
+        printf("\033[u\033[J");
+    }
 }
 
-/* Lee una línea del socket byte a byte hasta '\n' (soporta \r\n) */
-static int read_line(int fd, char *buf, size_t buf_len)
+static void screen_stats(int fd)
 {
-    size_t pos = 0;
+    uint64_t total = 0, conc = 0, up = 0, down = 0;
 
-    while (pos + 1 < buf_len)
+    printf("\nStats\n");
+    if (!cmd_stats(fd, &total, &conc, &up, &down))
     {
-        const ssize_t n = read(fd, buf + pos, 1);
-        if (n == 0)
-        {
-            return -1;
-        }
-        if (n < 0)
-        {
-            if (errno == EINTR)
-            {
-                continue;
-            }
-            return -1;
-        }
-        if (buf[pos] == '\n')
-        {
-            buf[pos] = '\0';
-            if (pos > 0 && buf[pos - 1] == '\r')
-            {
-                buf[pos - 1] = '\0';
-            }
-            return 0;
-        }
-        pos++;
+        printf("  Error fetching stats\n");
+    }
+    else
+    {
+        printf("  %-22s %llu\n", "Total connections:", (unsigned long long)total);
+        printf("  %-22s %llu\n", "Active connections:", (unsigned long long)conc);
+        printf("  %-22s %llu\n", "Bytes uploaded:", (unsigned long long)up);
+        printf("  %-22s %llu\n", "Bytes downloaded:", (unsigned long long)down);
     }
 
-    return -1;
+    wait_enter();
 }
 
-/* Escribe un buffer completo al socket (reintenta si EINTR) */
-static int write_all(int fd, const char *data)
+static void screen_connections(int fd)
 {
-    size_t total = 0;
-    const size_t len = strlen(data);
+    char lines[MAX_RESP_LINES][MAX_RESP_LINE_LEN];
+    int count = cmd_connections(fd, lines, MAX_RESP_LINES);
 
-    while (total < len)
+    if (count < 0)
     {
-        const ssize_t n = write(fd, data + total, len - total);
-        if (n < 0)
-        {
-            if (errno == EINTR)
-            {
-                continue;
-            }
-            return -1;
-        }
-        total += (size_t)n;
+        printf("\n  Error fetching connections\n");
+    }
+    else if (count == 1 && strcmp(lines[0], "+OK") == 0)
+    {
+        printf("\nActive connections\n  No active connections o7\n");
+    }
+    else
+    {
+        show_lines("Active connections", lines, count, 0);
     }
 
-    return 0;
+    wait_enter();
 }
 
-/* Lee todas las líneas de respuesta hasta el terminador ".\n" */
-static int read_until_dot(int fd)
+static void screen_users(int fd)
 {
-    char line[LINE_BUF_SIZE];
+    char lines[MAX_RESP_LINES][MAX_RESP_LINE_LEN];
+    int count = cmd_users(fd, lines, MAX_RESP_LINES);
 
-    while (read_line(fd, line, sizeof(line)) == 0)
+    if (count < 0)
     {
-        if (strcmp(line, ".") == 0)
-        {
-            return 0;
-        }
-
-        printf("%s\n", line);
+        printf("\n  Error fetching users\n");
+    }
+    else
+    {
+        show_lines("Registered users", lines, count, 0);
     }
 
-    return -1;
+    wait_enter();
+}
+
+static void screen_config(int fd)
+{
+    char err[MAX_RESP_LINE_LEN];
+    const char *labels[config_count + 1];
+    char labels_buf[config_count][64];
+
+    while (1)
+    {
+        for (int i = 0; i < config_count; i++)
+        {
+            snprintf(labels_buf[i], sizeof(labels_buf[i]),
+                     "%-30s [%u]", params[i].label, params[i].value);
+            labels[i] = labels_buf[i];
+        }
+        labels[config_count] = "Back";
+
+        printf("\033[s");
+        int sel = select_menu(labels, config_count + 1, "Back");
+        if (sel < 0 || sel >= config_count)
+        {
+            printf("\033[u\033[J");
+            return;
+        }
+
+        int n = config_count + 4;
+        printf("\033[%dA\033[J", n);
+        printf("\n%s\n", params[sel].label);
+
+        long val = input_number("  New value: ",
+                                (long)params[sel].min,
+                                (long)params[sel].max);
+
+        printf("\n");
+        if (cmd_config(fd, params[sel].name, (uint32_t)val, err, sizeof(err)))
+        {
+            params[sel].value = (uint32_t)val;
+            printf("  Configuration updated o7\n");
+        }
+        else
+        {
+            printf("  Error: %s\n", err);
+        }
+
+        wait_enter();
+        printf("\033[u\033[J");
+    }
+}
+
+static void screen_add_user(int fd)
+{
+    char user[MAX_INPUT_LEN];
+    char pass[MAX_INPUT_LEN];
+    char err[MAX_RESP_LINE_LEN];
+
+    printf("\nAdd user\n");
+    input_line("  Username: ", user, sizeof(user));
+    if (user[0] == '\0')
+        return;
+
+    input_password("  Password: ", pass, sizeof(pass));
+    if (pass[0] == '\0')
+        return;
+
+    input_line("Admin? (y/n): ", err, sizeof(err));
+    bool admin = (err[0] == 'y' || err[0] == 'Y');
+
+    printf("\n");
+    if (cmd_add_user(fd, user, pass, admin, err, sizeof(err)))
+    {
+        printf("  User created o7\n");
+    }
+    else
+    {
+        printf("  Error: %s\n", err);
+    }
+
+    wait_enter();
+}
+
+static void screen_del_user(int fd)
+{
+    char user[MAX_INPUT_LEN];
+    char err[MAX_RESP_LINE_LEN];
+
+    printf("\nDelete user\n");
+    input_line("  Username: ", user, sizeof(user));
+    if (user[0] == '\0')
+        return;
+
+    printf("  Delete '%s'? (y/N): ", user);
+    fflush(stdout);
+    char buf[64];
+    fgets(buf, sizeof(buf), stdin);
+    if (buf[0] != 'y' && buf[0] != 'Y')
+    {
+        printf("  Cancelled.\n");
+        return;
+    }
+
+    printf("\n");
+    if (cmd_del_user(fd, user, err, sizeof(err)))
+    {
+        printf("  User deleted o7\n");
+    }
+    else
+    {
+        printf("  Error: %s\n", err);
+    }
+
+    wait_enter();
+}
+
+static void screen_set_password(int fd)
+{
+    char user[MAX_INPUT_LEN];
+    char pass[MAX_INPUT_LEN];
+    char err[MAX_RESP_LINE_LEN];
+
+    printf("\nChange password\n");
+    input_line("  Username: ", user, sizeof(user));
+    if (user[0] == '\0')
+        return;
+
+    input_password("  New password: ", pass, sizeof(pass));
+    if (pass[0] == '\0')
+        return;
+
+    printf("\n");
+    if (cmd_set_password(fd, user, pass, err, sizeof(err)))
+    {
+        printf("  Password updated o7\n");
+    }
+    else
+    {
+        printf("  Error: %s\n", err);
+    }
+
+    wait_enter();
+}
+
+static void screen_access_log(int fd)
+{
+    char lines[MAX_RESP_LINES][MAX_RESP_LINE_LEN];
+    int count = cmd_access_log(fd, NULL, lines, MAX_RESP_LINES);
+
+    if (count < 0)
+    {
+        printf("\n  Error fetching access log\n");
+    }
+    else
+    {
+        show_lines("Access log", lines, count, 1);
+    }
+
+    wait_enter();
+}
+
+static void screen_deny_host(int fd)
+{
+    char hostname[MAX_INPUT_LEN];
+    char err[MAX_RESP_LINE_LEN];
+
+    printf("\nDeny host\n");
+    input_line("  Hostname: ", hostname, sizeof(hostname));
+    if (hostname[0] == '\0')
+        return;
+
+    printf("\n");
+    if (cmd_deny_host(fd, hostname, err, sizeof(err)))
+    {
+        printf("  Host denied o7\n");
+    }
+    else
+    {
+        printf("  Error: %s\n", err);
+    }
+
+    wait_enter();
+}
+
+static void screen_deny_ip(int fd)
+{
+    char ip[MAX_INPUT_LEN];
+    char err[MAX_RESP_LINE_LEN];
+
+    printf("\nDeny IP\n");
+    input_line("  IP address: ", ip, sizeof(ip));
+    if (ip[0] == '\0')
+        return;
+
+    printf("\n");
+    if (cmd_deny_ip(fd, ip, err, sizeof(err)))
+    {
+        printf("  IP denied o7\n");
+    }
+    else
+    {
+        printf("  Error: %s\n", err);
+    }
+
+    wait_enter();
+}
+
+static void screen_undeny(int fd)
+{
+    char target[MAX_INPUT_LEN];
+    char err[MAX_RESP_LINE_LEN];
+
+    printf("\nUndeny\n");
+    input_line("  Hostname or IP: ", target, sizeof(target));
+    if (target[0] == '\0')
+        return;
+
+    printf("\n");
+    if (cmd_undeny(fd, target, err, sizeof(err)))
+    {
+        printf("  Rule removed o7\n");
+    }
+    else
+    {
+        printf("  Error: %s\n", err);
+    }
+
+    wait_enter();
+}
+
+static void screen_deny_list(int fd)
+{
+    char lines[MAX_RESP_LINES][MAX_RESP_LINE_LEN];
+    int count = cmd_deny_list(fd, lines, MAX_RESP_LINES);
+
+    if (count < 0)
+    {
+        printf("\n  Error fetching deny list\n");
+    }
+    else
+    {
+        show_lines("Denied hosts and IPs", lines, count, 0);
+    }
+
+    wait_enter();
 }
 
 int main(int argc, char **argv)
@@ -141,92 +440,58 @@ int main(int argc, char **argv)
 
     if (setup_flags(argc, argv, "p:h") != 0)
     {
-        usage(argv[0]);
-
+        fprintf(stderr, "Usage: %s [-p port]\n", argv[0]);
         return EXIT_FAILURE;
     }
 
     if (has_flag('h'))
     {
-        usage(argv[0]);
-
+        fprintf(stderr, "Usage: %s [-p port]\n", argv[0]);
         return EXIT_SUCCESS;
     }
 
     if (has_flag('p'))
     {
-        const long value = get_flag_long('p');
+        long value = get_flag_long('p');
         if (value <= 0 || value > 65535)
         {
-            usage(argv[0]);
+            fprintf(stderr, "Usage: %s [-p port]\n", argv[0]);
             return EXIT_FAILURE;
         }
         port = (uint16_t)value;
     }
 
-    const int fd = connect_server("127.0.0.1", port);
+    printf("Connecting to 127.0.0.1:%u...\n", port);
+
+    int fd = connect_server("127.0.0.1", port);
     if (fd < 0)
     {
-        fprintf(stderr, "connect failed: %s\n", strerror(errno));
-
+        fprintf(stderr, "Error: %s\n", strerror(errno));
         return EXIT_FAILURE;
     }
 
-    if (read_until_dot(fd) < 0)
+    char buf[LINE_BUF_SIZE];
+    while (read_line(fd, buf, sizeof(buf)) == 0)
     {
-        fprintf(stderr, "connection closed\n");
+        if (strcmp(buf, ".") == 0)
+            break;
+    }
+
+    printf("Connected.\n\n");
+
+    printf("\033[3A\033[J");
+    printf("ChungusMonitor v1.0 - 127.0.0.1:%u\n\033[?25l", port);
+
+    if (!screen_login(fd))
+    {
         close(fd);
-
-        return EXIT_FAILURE;
+        return EXIT_SUCCESS;
     }
 
-    // REPL main loop
-    while (true)
-    {
-        fflush(stdout);
+    screen_main_menu(fd);
 
-        char input[LINE_BUF_SIZE];
-        if (fgets(input, sizeof(input), stdin) == NULL)
-        {
-            printf("\n");
-
-            break;
-        }
-
-        size_t len = strlen(input);
-        while (len > 0 && (input[len - 1] == '\n' || input[len - 1] == '\r'))
-        {
-            input[--len] = '\0';
-        }
-
-        if (len == 0)
-        {
-            continue;
-        }
-
-        const bool is_quit = strcmp(input, "QUIT") == 0;
-
-        input[len] = '\n';
-        if (write_all(fd, input) < 0)
-        {
-            fprintf(stderr, "write error\n");
-
-            break;
-        }
-
-        if (read_until_dot(fd) < 0)
-        {
-            fprintf(stderr, "connection lost\n");
-
-            break;
-        }
-
-        if (is_quit)
-        {
-            break;
-        }
-    }
-
+    printf("\033[?25h\nDisconnecting...\n");
+    cmd_quit(fd);
     close(fd);
     return EXIT_SUCCESS;
 }

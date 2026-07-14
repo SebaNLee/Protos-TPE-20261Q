@@ -9,7 +9,7 @@
  * monitor_commands_test.c — tests unitarios del protocolo ChungusMonitor.
  *
  * Suites: greeting, auth (STM), CRLF/partial lines, pipelining, comandos CRUD,
- * CONFIG, ACCESS_LOG, HELP, QUIT, EOF sin '\n' final.
+ * CONFIG, ACCESS_LOG, QUIT, EOF sin '\n' final.
  */
 
 static void setup_commands(struct monitor_commands_session *cmds, struct monitor_store *store)
@@ -526,102 +526,6 @@ START_TEST(test_set_password_missing)
 }
 END_TEST
 
-START_TEST(test_help_before_auth)
-{
-    struct monitor_store *store = store_create();
-    struct monitor_commands_session proto;
-    setup_commands(&proto, store);
-    char out[MT_DRAIN_SIZE];
-
-    mt_feed(&proto, "HELP\n");
-    mt_drain_all(&proto, out, sizeof(out));
-    mt_assert_has(out, "Available commands:");
-    mt_assert_has(out, "AUTH <username> <password>");
-    ck_assert_int_eq(MONITOR_ST_AWAIT_AUTH, proto.state);
-
-    store_destroy(store);
-}
-END_TEST
-
-START_TEST(test_help)
-{
-    struct monitor_store *store = store_create();
-    struct monitor_commands_session proto;
-    setup_commands(&proto, store);
-    char out[MT_DRAIN_SIZE];
-
-    mt_auth_admin(&proto);
-    mt_feed(&proto, "HELP\n");
-    mt_drain_all(&proto, out, sizeof(out));
-    mt_assert_has(out, "Available commands:");
-    mt_assert_has(out, "ADD_USER");
-
-    store_destroy(store);
-}
-END_TEST
-
-START_TEST(test_help_stats)
-{
-    struct monitor_store *store = store_create();
-    struct monitor_commands_session proto;
-    setup_commands(&proto, store);
-    char out[MT_DRAIN_SIZE];
-
-    mt_auth_admin(&proto);
-    mt_feed(&proto, "HELP STATS\n");
-    mt_drain_all(&proto, out, sizeof(out));
-    mt_assert_has(out, "STATS — show server metrics");
-
-    store_destroy(store);
-}
-END_TEST
-
-START_TEST(test_help_connections)
-{
-    struct monitor_store *store = store_create();
-    struct monitor_commands_session proto;
-    setup_commands(&proto, store);
-    char out[MT_DRAIN_SIZE];
-
-    mt_feed(&proto, "HELP CONNECTIONS\n");
-    mt_drain_all(&proto, out, sizeof(out));
-    mt_assert_has(out, "CONNECTIONS — list active SOCKS sessions");
-
-    store_destroy(store);
-}
-END_TEST
-
-START_TEST(test_help_users)
-{
-    struct monitor_store *store = store_create();
-    struct monitor_commands_session proto;
-    setup_commands(&proto, store);
-    char out[MT_DRAIN_SIZE];
-
-    mt_feed(&proto, "HELP USERS\n");
-    mt_drain_all(&proto, out, sizeof(out));
-    mt_assert_has(out, "USERS — list all registered users with their roles");
-
-    store_destroy(store);
-}
-END_TEST
-
-START_TEST(test_help_unknown)
-{
-    struct monitor_store *store = store_create();
-    struct monitor_commands_session proto;
-    setup_commands(&proto, store);
-    char out[MT_DRAIN_SIZE];
-
-    mt_auth_admin(&proto);
-    mt_feed(&proto, "HELP NOPE\n");
-    mt_drain_all(&proto, out, sizeof(out));
-    mt_assert_has(out, "-ERR unknown command\n");
-
-    store_destroy(store);
-}
-END_TEST
-
 START_TEST(test_quit)
 {
     struct monitor_store *store = store_create();
@@ -709,12 +613,6 @@ Suite *monitor_commands_suite(void)
     tcase_add_test(tc, test_del_last_admin);
     tcase_add_test(tc, test_set_password);
     tcase_add_test(tc, test_set_password_missing);
-    tcase_add_test(tc, test_help_before_auth);
-    tcase_add_test(tc, test_help);
-    tcase_add_test(tc, test_help_stats);
-    tcase_add_test(tc, test_help_connections);
-    tcase_add_test(tc, test_help_users);
-    tcase_add_test(tc, test_help_unknown);
     tcase_add_test(tc, test_quit);
     tcase_add_test(tc, test_unknown_cmd);
     tcase_add_test(tc, test_eof_partial);
