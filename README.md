@@ -23,7 +23,7 @@ make all
 Run the proxy (SOCKS5 on :1080, monitor on :8080):
 
 ```bash
-./bin/server -u user:pass -a admin:pass
+./bin/server -u user:user -a admin:admin
 ```
 
 Run TUI in another terminal:
@@ -36,7 +36,7 @@ For stress testing, see `doc/stress_test.md`:
 
 ```bash
 make stress
-./bin/stress_client -u user:pass -d 127.0.0.1:9999 -n 500 -M connections
+./bin/stress_client -u user:user -d 127.0.0.1:9999 -n 500 -M connections
 ```
 
 ### Docker usage (macOS)
@@ -93,7 +93,7 @@ Cursor-based (not the AI) TUI, just execute the binary:
 ### `bin/server` — SOCKS5 proxy + monitor server
 
 ```
-Usage: ./bin/server [-p socks_port] [-m monitor_port] -u <user>:<pass> -a <admin>:<pass>
+Usage: ./bin/server [-p socks_port] [-m monitor_port] -u <user>:<password> -a <admin>:<password>
     -p  SOCKS5 port (default 1080)
     -m  Monitor port (default 8080)
     -u  Add SOCKS user:password pair (required, repeatable)
@@ -139,7 +139,12 @@ pre-commit install
 ### socks5 usage example
 
 ```
+# cURL resolves DNS on client first and sends to proxy
 curl --socks5 admin:admin@localhost:1080 http://google.com
+
+# cURL sends everything to proxy
+curl --socks5-hostname user:user@localhost:1080 http://google.com, este sí porque el proxy resuelve
 ```
 
 PD: este readme fue escrito a mano ;)
+

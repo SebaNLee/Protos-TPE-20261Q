@@ -439,6 +439,120 @@ static void handle_set_password(struct monitor_commands_session *session, monito
     }
 }
 
+static void handle_deny_host(struct monitor_commands_session *session, monitor_cmd *cmd)
+{
+    struct monitor_store *store = session->store;
+
+    if (cmd->argc < 2)
+    {
+        commands_wb_append(session, "-ERR syntax error\n");
+        return;
+    }
+
+    if (is_host_denied(store, cmd->args[1]))
+    {
+        commands_wb_append(session, "-ERR host already denied\n");
+        return;
+    }
+
+    if (store_deny_host(store, cmd->args[1]))
+    {
+        commands_wb_append(session, "+OK\n");
+    }
+    else
+    {
+        commands_wb_append(session, "-ERR failed to add rule\n");
+    }
+}
+
+static void handle_deny_ip(struct monitor_commands_session *session, monitor_cmd *cmd)
+{
+    struct monitor_store *store = session->store;
+
+    if (cmd->argc < 2)
+    {
+        commands_wb_append(session, "-ERR syntax error\n");
+        return;
+    }
+
+    if (is_ip_denied(store, cmd->args[1]))
+    {
+        commands_wb_append(session, "-ERR address already denied\n");
+        return;
+    }
+
+    if (store_deny_ip(store, cmd->args[1]))
+    {
+        commands_wb_append(session, "+OK\n");
+    }
+    else
+    {
+        commands_wb_append(session, "-ERR failed to add rule\n");
+    }
+}
+
+static void handle_undeny(struct monitor_commands_session *session, monitor_cmd *cmd)
+{
+    struct monitor_store *store = session->store;
+
+    if (cmd->argc < 2)
+    {
+        commands_wb_append(session, "-ERR syntax error\n");
+        return;
+    }
+
+    // Intenta ambos IP y FQDN. El comando bien formado solo devuelve error si ambos fallan.
+
+    if (store_undeny_host(store, cmd->args[1]) || store_undeny_ip(store, cmd->args[1]))
+    {
+        commands_wb_append(session, "+OK\n");
+    }
+    else
+    {
+        commands_wb_append(session, "-ERR rule not present\n");
+    }
+}
+
+static void handle_deny_list(struct monitor_commands_session *session, monitor_cmd *cmd)
+{
+    struct monitor_store *store = session->store;
+
+    bool show_hosts = false;
+    bool show_ips = false;
+
+    if (cmd->argc >= 2)
+    {
+        if (strcmp(cmd->args[1], "host") == 0)
+            show_hosts = true;
+        else if (strcmp(cmd->args[1], "ip") == 0)
+            show_ips = true;
+    }
+    else
+    {
+        show_hosts = show_ips = true;
+    }
+
+    if (show_hosts)
+    {
+        acl_rule *hosts = get_denied_hosts(store);
+        commands_wb_append(session, "+OK Denied hosts:\n");
+        for (const acl_rule *r = hosts; r != NULL; r = r->next)
+        {
+            commands_wb_appendf(session, "+OK %s\n", acl_rule_to_string(r));
+        }
+    }
+
+    if (show_ips)
+    {
+        acl_rule *ips = get_denied_ips(store);
+        commands_wb_append(session, "+OK Denied IPs:\n");
+        for (const acl_rule *r = ips; r != NULL; r = r->next)
+        {
+            commands_wb_appendf(session, "+OK %s\n", acl_rule_to_string(r));
+        }
+    }
+}
+
 /* Encola +OK y marca cierre; monitor.c cierra el fd cuando wb quede vacío */
 static void handle_quit(struct monitor_commands_session *session)
 {
@@ -518,6 +632,22 @@ static void dispatch_line(struct monitor_commands_session *session, char *line)
     else if (strcmp(cmd.cmd, "SET_PASSWORD") == 0)
     {
         handle_set_password(session, &cmd);
+    }
+    else if (strcmp(cmd.cmd, "DENY_HOST") == 0)
+    {
+        handle_deny_host(session, &cmd);
+    }
+    else if (strcmp(cmd.cmd, "DENY_IP") == 0)
+    {
+        handle_deny_ip(session, &cmd);
+    }
+    else if (strcmp(cmd.cmd, "UNDENY") == 0)
+    {
+        handle_undeny(session, &cmd);
+    }
+    else if (strcmp(cmd.cmd, "DENY_LIST") == 0)
+    {
+        handle_deny_list(session, &cmd);
     }
     else if (strcmp(cmd.cmd, "QUIT") == 0)
     {
