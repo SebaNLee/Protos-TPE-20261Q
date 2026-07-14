@@ -7,6 +7,7 @@
  * monitor_commands.c. Un solo hilo del selector lo modifica.
  */
 
+#include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,6 +43,12 @@ struct monitor_store
     uint32_t timeout;
     uint32_t sessions_cap;
     uint32_t io_buffer_size;
+
+    acl_rule *denied_hosts;
+    acl_rule *last_denied_host;
+
+    acl_rule *denied_addresses;
+    acl_rule *last_denied_addr;
 
     struct store_session_node *sessions;
     size_t sessions_slots;
@@ -182,7 +189,17 @@ struct monitor_store *store_create(void)
     return store;
 }
 
-/* Libera sessions[] y el struct monitor_store. */
+static void free_acl_list(acl_rule *list)
+{
+    while (list != NULL)
+    {
+        acl_rule *next = list->next;
+        free(list);
+        list = next;
+    }
+}
+
+/* Libera sessions[], el struct monitor_store y ACL rules */
 void store_destroy(struct monitor_store *store)
 {
     if (store == NULL)
@@ -190,6 +207,8 @@ void store_destroy(struct monitor_store *store)
         return;
     }
 
+    free_acl_list(store->denied_hosts);
+    free_acl_list(store->denied_addresses);
     free(store->sessions);
     free(store);
 }
@@ -865,4 +884,221 @@ const char *store_session_phase_str(store_session_phase phase)
     default:
         return "UNKNOWN";
     }
+}
+
+static void add_host_rule(struct monitor_store *store, acl_rule *rule)
+{
+    if (store->last_denied_host == NULL)
+    {
+        store->denied_hosts = store->last_denied_host = rule;
+        return;
+    }
+
+    store->last_denied_host->next = rule;
+    store->last_denied_host = rule;
+}
+
+static void add_ip_rule(struct monitor_store *store, acl_rule *rule)
+{
+    if (store->last_denied_addr == NULL)
+    {
+        store->denied_addresses = store->last_denied_addr = rule;
+        return;
+    }
+
+    store->last_denied_addr->next = rule;
+    store->last_denied_addr = rule;
+}
+
+bool store_deny_host(struct monitor_store *store, const char *hostname)
+{
+    if (is_host_denied(store, hostname))
+        return false;
+
+    {
+        struct in_addr addr4;
+        struct in6_addr addr6;
+
+        // Las IPs deben registrarse con store_deny_ip
+        if (inet_pton(AF_INET, hostname, &addr4) == 1 || inet_pton(AF_INET6, hostname, &addr6) == 1)
+        {
+            return false;
+        }
+    }
+
+    acl_rule *rule = calloc(1, sizeof(acl_rule));
+    rule->type = ACL_DENIED_HOST;
+    strcpy(rule->host, hostname);
+
+    add_host_rule(store, rule);
+    return true;
+}
+
+bool store_deny_ip(struct monitor_store *store, const char *ip)
+{
+    if (is_ip_denied(store, ip))
+        return false;
+
+    acl_rule *rule = calloc(1, sizeof(acl_rule));
+    rule->type = ACL_DENIED_ADDRESS;
+
+    if (inet_pton(AF_INET, ip, &rule->ipv4) == 1)
+    {
+        rule->is_v4 = true;
+    }
+    else if (inet_pton(AF_INET6, ip, &rule->ipv6) == 1)
+    {
+        rule->is_v4 = false;
+    }
+    else
+    {
+        free(rule);
+        return false;
+    }
+
+    add_ip_rule(store, rule);
+    return true;
+}
+
+static bool host_rule_match(const acl_rule *rule, const char *hostname)
+{
+    return strcmp(rule->host, hostname) == 0;
+}
+
+static bool ip_rule_match(const acl_rule *rule, const char *ip)
+{
+    struct in_addr addr4;
+    struct in6_addr addr6;
+
+    if (inet_pton(AF_INET, ip, &addr4) == 1)
+    {
+        return rule->is_v4 && memcmp(&rule->ipv4, &addr4, sizeof(addr4)) == 0;
+    }
+
+    if (inet_pton(AF_INET6, ip, &addr6) == 1)
+    {
+        return !rule->is_v4 && memcmp(&rule->ipv6, &addr6, sizeof(addr6)) == 0;
+    }
+
+    return false;
+}
+
+bool is_host_denied(const struct monitor_store *store, const char *hostname)
+{
+    if (store == NULL || hostname == NULL)
+        return false;
+
+    for (const acl_rule *r = store->denied_hosts; r != NULL; r = r->next)
+    {
+        if (host_rule_match(r, hostname))
+            return true;
+    }
+
+    return false;
+}
+
+bool is_ip_denied(const struct monitor_store *store, const char *ip)
+{
+    if (store == NULL || ip == NULL)
+        return false;
+
+    for (const acl_rule *r = store->denied_addresses; r != NULL; r = r->next)
+    {
+        if (ip_rule_match(r, ip))
+            return true;
+    }
+
+    return false;
+}
+
+bool store_undeny_host(struct monitor_store *store, const char *hostname)
+{
+    if (store == NULL || hostname == NULL)
+        return false;
+
+    acl_rule *previous = NULL;
+    acl_rule *current = store->denied_hosts;
+
+    while (current != NULL)
+    {
+        if (host_rule_match(current, hostname))
+        {
+            if (previous == NULL)
+                store->denied_hosts = current->next;
+            else
+                previous->next = current->next;
+
+            if (store->last_denied_host == current)
+                store->last_denied_host = previous;
+
+            free(current);
+            return true;
+        }
+        previous = current;
+        current = current->next;
+    }
+
+    return false;
+}
+
+bool store_undeny_ip(struct monitor_store *store, const char *ip)
+{
+    if (store == NULL || ip == NULL)
+        return false;
+
+    acl_rule *previous = NULL;
+    acl_rule *current = store->denied_addresses;
+
+    while (current != NULL)
+    {
+        if (ip_rule_match(current, ip))
+        {
+            if (previous == NULL)
+                store->denied_addresses = current->next;
+            else
+                previous->next = current->next;
+
+            if (store->last_denied_addr == current)
+                store->last_denied_addr = previous;
+
+            free(current);
+            return true;
+        }
+        previous = current;
+        current = current->next;
+    }
+
+    return false;
+}
+
+acl_rule *get_denied_hosts(const struct monitor_store *store)
+{
+    return store->denied_hosts;
+}
+
+acl_rule *get_denied_ips(const struct monitor_store *store)
+{
+    return store->denied_addresses;
+}
+
+const char *acl_rule_to_string(const acl_rule *rule)
+{
+    if (rule == NULL)
+        return "NULL";
+
+    if (rule->type == ACL_DENIED_HOST)
+        return rule->host;
+
+    static char buf[INET6_ADDRSTRLEN];
+
+    if (inet_ntop(rule->is_v4 ? AF_INET : AF_INET6,
+                  rule->is_v4 ? (const void *)&rule->ipv4
+                              : (const void *)&rule->ipv6,
+                  buf,
+                  sizeof(buf)) == NULL)
+    {
+        return "?";
+    }
+
+    return buf;
 }

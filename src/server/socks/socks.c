@@ -58,6 +58,7 @@ static bool socks_flush_client(struct socks_session *session);
 static bool socks_flush_origin(struct socks_session *session);
 static bool socks_close_if_flushed(struct socks_session *session);
 
+static bool socks_dest_addr_is_denied(struct monitor_store *store, const struct sockaddr *addr);
 static void socks_session_record_dest(struct socks_session *session);
 static void socks_auth_store_user(struct socks_session *session);
 static void idle_list_remove(struct socks_server *srv, struct socks_session *session);
@@ -96,6 +97,33 @@ static bool socks_o2c_append(struct socks_session *session,
     memcpy(ptr, data, len);
     buffer_write_adv(&session->o2c, (ssize_t)len);
     return true;
+}
+
+static bool socks_dest_addr_is_denied(struct monitor_store *store, const struct sockaddr *addr)
+{
+    if (store == NULL || addr == NULL)
+        return false;
+
+    char buf[INET6_ADDRSTRLEN];
+    const void *src = NULL;
+
+    if (addr->sa_family == AF_INET)
+    {
+        src = &((const struct sockaddr_in *)addr)->sin_addr;
+    }
+    else if (addr->sa_family == AF_INET6)
+    {
+        src = &((const struct sockaddr_in6 *)addr)->sin6_addr;
+    }
+    else
+    {
+        return false;
+    }
+
+    if (inet_ntop(addr->sa_family, src, buf, sizeof(buf)) == NULL)
+        return false;
+
+    return is_ip_denied(store, buf);
 }
 
 /*
@@ -299,6 +327,7 @@ static bool socks_send_connect_reply(struct socks_session *session, uint8_t rep)
 /* REP del reply CONNECT (RFC 1928). */
 #define SOCKS_REP_SUCCEEDED 0x00
 #define SOCKS_REP_GENERAL_FAILURE 0x01
+#define SOCKS_REP_DENIED_BY_RULESET 0x02
 #define SOCKS_REP_NETWORK_UNREACHABLE 0x03
 #define SOCKS_REP_HOST_UNREACHABLE 0x04
 #define SOCKS_REP_CONNECTION_REFUSED 0x05
@@ -521,6 +550,12 @@ static unsigned socks_begin_origin_connect(struct selector_key *key)
         return SOCKS_ST_DONE;
     }
 
+    if (socks_dest_addr_is_denied(session->srv->store, addr))
+    {
+        socks_fail_request(key, SOCKS_REP_DENIED_BY_RULESET);
+        return SOCKS_ST_DONE;
+    }
+
     const int fd = socket(addr->sa_family, SOCK_STREAM, 0);
     if (fd < 0)
     {
@@ -614,6 +649,14 @@ static unsigned socks_on_read_request(struct selector_key *key)
 
         if (status == SOCKS_REQUEST_PARSED_FQDN)
         {
+            const char *fqdn = socks_request_fqdn(&session->request);
+
+            if (is_host_denied(session->srv->store, fqdn))
+            {
+                socks_fail_request(key, SOCKS_REP_DENIED_BY_RULESET);
+                return SOCKS_ST_DONE;
+            }
+
             store_session_set_phase(session->srv->store,
                                     session->store_id,
                                     STORE_SESSION_CONNECTING);
@@ -622,6 +665,14 @@ static unsigned socks_on_read_request(struct selector_key *key)
 
         if (status == SOCKS_REQUEST_PARSED_ADDR)
         {
+            if (socks_dest_addr_is_denied(
+                    session->srv->store,
+                    socks_request_dest_addr(&session->request)))
+            {
+                socks_fail_request(key, SOCKS_REP_DENIED_BY_RULESET);
+                return SOCKS_ST_DONE;
+            }
+
             store_session_set_phase(session->srv->store,
                                     session->store_id,
                                     STORE_SESSION_CONNECTING);

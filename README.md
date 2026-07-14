@@ -121,5 +121,9 @@ pre-commit install
 ### socks5 usage example (current impl)
 
 `
+# cURL resolves DNS on client first and sends to proxy
 curl --socks5 admin:admin@localhost:1080 http://google.com
+
+# cURL sends everything to proxy
+curl --socks5-hostname user:user@localhost:1080 http://google.com, este sí porque el proxy resuelve
 `
