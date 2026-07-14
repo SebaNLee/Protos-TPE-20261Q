@@ -1,7 +1,7 @@
 #include "store.h"
 
 /*
- * store.c — almacena usuarios, métricas, access log (circular) y sesiones SOCKS activas.
+ * store.c — almacena usuarios, métricas, access log (circular + stdout) y sesiones SOCKS activas.
  *
  * monitor_store es el único lugar con estado compartido entre socks.c y
  * monitor_commands.c. Un solo hilo del selector lo modifica.
@@ -85,6 +85,21 @@ static struct store_session_node *store_find_session(struct monitor_store *store
     return NULL;
 }
 
+/* Emite una entrada del access log a stdout (redirigible por el operador). */
+static void store_log_print(const store_log_entry *entry)
+{
+    fprintf(stdout,
+            "%s: %s:%u %s %s up=%llu down=%llu\n",
+            entry->username,
+            entry->host,
+            entry->port,
+            entry->timestamp,
+            store_log_state_str(entry->state),
+            (unsigned long long)entry->bytes_up,
+            (unsigned long long)entry->bytes_down);
+    fflush(stdout);
+}
+
 /* Access log circular: al llenarse, log_head avanza y pisa la entrada más antigua */
 static store_log_id store_log_append(struct monitor_store *store,
                                      const char *username,
@@ -115,6 +130,7 @@ static store_log_id store_log_append(struct monitor_store *store,
     entry->bytes_up = 0;
     entry->bytes_down = 0;
 
+    store_log_print(entry);
     return entry->id;
 }
 
@@ -137,6 +153,11 @@ static void store_log_update(struct monitor_store *store,
             store->log[i].state = state;
             store->log[i].bytes_up = bytes_up;
             store->log[i].bytes_down = bytes_down;
+            /* Solo eventos de cierre; CONNECTED+bytes no spamea stdout. */
+            if (state != STORE_LOG_CONNECTED)
+            {
+                store_log_print(&store->log[i]);
+            }
             return;
         }
     }
