@@ -3,8 +3,8 @@
 
 #include <stdbool.h>
 #include <stddef.h>
-#include <time.h>
 #include <sys/time.h>
+#include <time.h>
 
 /**
  * selector.c - un muliplexor de entrada salida
@@ -29,8 +29,7 @@
  * la iteración normal. Los handlers no se tienen que preocupar por la
  * concurrencia.
  *
- * Ahora con epoll la señalización es con eventfd en vez de signals y,
- * en vez de especificar la señal a usar, ahora va con timeout.
+ * Ahora con epoll la señalización es con eventfd en vez de signals.
  *
  * Todos métodos retornan su estado (éxito / error) de forma uniforme.
  * Puede utilizar `selector_error' para obtener una representación human
@@ -69,9 +68,6 @@ const char *selector_error(const selector_status status);
 /** opciones de inicialización del selector */
 struct selector_init
 {
-    /** (deprecated, ahora es con eventfd) señal a utilizar para notificaciones internas */
-    const int signal;
-
     /** tiempo máximo de bloqueo durante `selector_iteratate' */
     struct timespec select_timeout;
 };
