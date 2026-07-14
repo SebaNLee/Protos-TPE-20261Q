@@ -378,12 +378,13 @@ START_TEST(test_access_log_all)
     setup_commands(&proto, store);
     char out[MT_DRAIN_SIZE];
 
-    mt_sim_session(store, "loguser", "site.org", 443, 0, 0, true);
+    mt_sim_session(store, "loguser", "site.org", 443, 100, 200, true);
     mt_auth_admin(&proto);
     mt_feed(&proto, "ACCESS_LOG\n");
     mt_drain_all(&proto, out, sizeof(out));
     mt_assert_has(out, "Access log for all users:");
     mt_assert_has(out, "loguser: site.org:443");
+    mt_assert_has(out, "up=100 down=200");
 
     store_destroy(store);
 }
@@ -397,12 +398,13 @@ START_TEST(test_access_log_filter)
     char out[MT_DRAIN_SIZE];
 
     store_user_add(store, "filterme", "p", false);
-    mt_sim_session(store, "filterme", "only.me", 80, 0, 0, true);
+    mt_sim_session(store, "filterme", "only.me", 80, 10, 20, true);
     mt_auth_admin(&proto);
     mt_feed(&proto, "ACCESS_LOG filterme\n");
     mt_drain_all(&proto, out, sizeof(out));
     mt_assert_has(out, "Access log for user filterme:");
     mt_assert_has(out, "filterme: only.me:80");
+    mt_assert_has(out, "up=10 down=20");
 
     store_destroy(store);
 }

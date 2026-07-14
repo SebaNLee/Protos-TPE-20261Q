@@ -89,12 +89,14 @@ static struct store_session_node *store_find_session(struct monitor_store *store
 static void store_log_print(const store_log_entry *entry)
 {
     fprintf(stdout,
-            "%s: %s:%u %s %s\n",
+            "%s: %s:%u %s %s up=%llu down=%llu\n",
             entry->username,
             entry->host,
             entry->port,
             entry->timestamp,
-            store_log_state_str(entry->state));
+            store_log_state_str(entry->state),
+            (unsigned long long)entry->bytes_up,
+            (unsigned long long)entry->bytes_down);
     fflush(stdout);
 }
 

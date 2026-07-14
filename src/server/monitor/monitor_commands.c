@@ -349,12 +349,14 @@ static bool append_log_entry(const store_log_entry *entry, void *ctx)
     log_ctx *lctx = ctx;
 
     commands_wb_appendf(lctx->session,
-                        "+OK %s: %s:%u %s %s\n",
+                        "+OK %s: %s:%u %s %s up=%llu down=%llu\n",
                         entry->username,
                         entry->host,
                         entry->port,
                         entry->timestamp,
-                        store_log_state_str(entry->state));
+                        store_log_state_str(entry->state),
+                        (unsigned long long)entry->bytes_up,
+                        (unsigned long long)entry->bytes_down);
     return true;
 }
 
