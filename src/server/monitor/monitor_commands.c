@@ -583,10 +583,6 @@ static void handle_help(struct monitor_commands_session *session, monitor_cmd *c
         {"DEL_USER", "DEL_USER username — remove user from table"},
         {"SET_PASSWORD",
          "SET_PASSWORD username newpassword — change password for an existing user"},
-        {"DENY_HOST", "DENY_HOST fqdn — blacklists a fully qualified domain name for outgoing connections"},
-        {"DENY_IP", "DENY_IP ip — blacklists an IP address (IPv4 or IPv6) for outgoing connections"},
-        {"UNDENY", "UNDENY fqdn|ip — removes a fully qualified domain name or an IP from the blacklist"},
-        {"DENY_LIST", "DENY_LIST [host|ip] — shows the contents of the blacklist"},
         {"HELP", "HELP [command] — list commands or describe one command"},
         {"QUIT", "QUIT — close the connection gracefully"},
     };
