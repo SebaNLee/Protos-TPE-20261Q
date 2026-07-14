@@ -189,7 +189,17 @@ struct monitor_store *store_create(void)
     return store;
 }
 
-/* Libera sessions[] y el struct monitor_store. */
+static void free_acl_list(acl_rule *list)
+{
+    while (list != NULL)
+    {
+        acl_rule *next = list->next;
+        free(list);
+        list = next;
+    }
+}
+
+/* Libera sessions[], el struct monitor_store y ACL rules */
 void store_destroy(struct monitor_store *store)
 {
     if (store == NULL)
@@ -197,6 +207,8 @@ void store_destroy(struct monitor_store *store)
         return;
     }
 
+    free_acl_list(store->denied_hosts);
+    free_acl_list(store->denied_addresses);
     free(store->sessions);
     free(store);
 }
